@@ -557,23 +557,44 @@ func (sw *SharedFileWatcher) WatchDir(dirRel string) error {
 		return nil
 	}
 	clean := filepath.Clean(dirAbs)
+
+	// Reserve the slot under the lock, then register with fsnotify outside of
+	// it. Holding sw.mu across watcher.Add deadlocks on Windows: the
+	// readDirChangesW backend only services Add once it has finished handing
+	// off the event it is currently holding, and the sole consumer of that
+	// event stream is run() -- which needs sw.mu to watch newly created
+	// directories. So Add waits on the backend, the backend waits on run(),
+	// and run() waits on the lock Add is holding. inotify/kqueue Add is a
+	// plain syscall, which is why only Windows hangs.
+	//
+	// Reserving early means a concurrent caller can observe the directory as
+	// watched while Add is still in flight. That is deliberate: it collapses
+	// duplicate registrations, and if Add fails the reservation is rolled back
+	// so a later event can retry.
 	sw.mu.Lock()
-	defer sw.mu.Unlock()
 	select {
 	case <-sw.done:
+		sw.mu.Unlock()
 		return nil
 	default:
 	}
 	if _, ok := sw.watchedDirs[clean]; ok {
+		sw.mu.Unlock()
 		return nil
 	}
 	if len(sw.watchedDirs) >= maxWatchDirs {
+		sw.mu.Unlock()
 		return nil
 	}
+	sw.watchedDirs[clean] = struct{}{}
+	sw.mu.Unlock()
+
 	if err := sw.watcher.Add(clean); err != nil {
+		sw.mu.Lock()
+		delete(sw.watchedDirs, clean)
+		sw.mu.Unlock()
 		return err
 	}
-	sw.watchedDirs[clean] = struct{}{}
 	return nil
 }
 
