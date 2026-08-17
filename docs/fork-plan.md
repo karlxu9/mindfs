@@ -200,19 +200,53 @@ replace github.com/roasbeef/claude-agent-sdk-go => github.com/yandc/claude-agent
 
 **验收结果**：8/8 web 测试通过；`typecheck` 干净；插入一个必然失败的临时测试后 harness 正确捕获并 exit 1（红路径验证通过）。
 
-**⚠️ 本机环境缺失（开发前必装）**：当前机器**没有 `go`、没有 `make`、没有 `gh`**，只有 Node 24 + npm + git。所以：
+fork 已完成，origin 指向 `github.com/karlxu9/mindfs`，upstream 的 push URL 已设为 `DISABLED_use_origin` 防误推。
 
-- 上述验收是用等价 shell 循环手工执行的，**`make` 命令本身与整个 Go 侧（`go vet` / `go test`）尚未在本机验证过**——首次 CI 运行才会真正检验它们。若 `go vet` 在上游代码上本就不干净，从 workflow 里去掉该步即可。
-- 要本地开发必须装：**Go 1.25+**（`go.mod` 要求）、**make**、以及 fork 用的 **gh**（或用网页 fork）。
+### 阶段 0.5 —— 让 Windows 变绿　✅ 已完成（2026-08-17）
 
-**尚未完成——需要你操作**：fork 本身。`gh` 未安装，且创建 fork 会在你的 GitHub 账号下建仓库，属于对外可见操作，我没有代劳。请在网页 fork `a9gent/mindfs` 后执行：
+Windows runner 一上线就红了 **67 个测试**（本机 go1.26.5 windows/amd64 复现，与 CI 一致）。分类与处置：
 
-```bash
-git remote set-url origin https://github.com/<你的用户名>/mindfs.git
-git push -u origin main
-```
+| 类别 | 数量 | 处置 |
+|---|---|---|
+| 测试没关 sqlite 句柄（Windows 拒绝删除被占用文件） | 49（usecase 17 / kanban 18 / session 14） | 抽 `newTestManager` / `newTestService` 辅助函数，统一 `t.Cleanup` 关闭 |
+| `HOME` / `USERPROFILE`、`APPDATA`、`TMP`/`TEMP` 环境变量差异 | 9 | 见下方「Windows 环境变量」 |
+| commandexec 里的 POSIX shell / 路径假设 | 5 | 按 `runtime.GOOS` 分流或 skip |
+| POSIX 权限位断言（0600） | 2 | Windows 下跳过，见下方安全说明 |
+| `filepath.IsAbs` 平台差异（update 包） | 1 | 按平台取 `/tmp/escape` 或 `C:\escape` |
+| **生产代码死锁**（`fs`） | 1 | 见下方 |
 
-推上去后 CI 会首次运行，那一刻才算真正拿到绿色基线。
+**Windows 环境变量对照**（踩过的坑，后续写测试直接查表）：
+
+| Go API | POSIX 读 | Windows 读 |
+|---|---|---|
+| `os.UserHomeDir()` | `HOME` | `USERPROFILE` |
+| `os.UserConfigDir()` | `XDG_CONFIG_HOME` → `HOME` | `AppData`（大小写不敏感） |
+| `os.TempDir()` | `TMPDIR` | `TMP` → `TEMP`（**不看 `TMPDIR`**） |
+
+最后一条最阴：`autoAddExternalProjectRoots` 会过滤掉 `os.TempDir()` 下的路径，而测试用的 workspace 来自 `t.TempDir()`——在 Windows 上只设 `TMPDIR` 不起作用，被测根目录会被自己的过滤器吃掉。
+
+#### 顺带挖出 3 个真实生产 Bug（都已修）
+
+1. **`SharedFileWatcher` 在 Windows 上死锁**（`fs/shared_watcher.go`，提交 `bd99aea` + `bcc2345`）。
+   `run()` 直接内联调用 `watcher.Add()`。fsnotify 的 `readDirChangesW` 后端**把 `Add` 和事件投递串行化**：`Add` 投递请求后等后端应答，而后端只有把手上那条事件交出去之后才会应答——接收方正是 `run()`。二者互等，永久挂死。
+   inotify / kqueue 的 `Add` 是普通 syscall，所以**只有 Windows 会中招**。
+   **用户可见症状**：在被监视的项目里新建一个目录，该项目的实时文件更新就此失效，直到重启。**已存在 18 个版本无人发现。**
+   修法分两步，第一步不够：先把 `sw.mu` 移出 `Add` 的等待环（`bd99aea`），CI 侥幸绿过一次；但只要 `run()` 还自己调 `Add`，两方循环等待依旧存在，下一轮 CI 就挂了 10 分钟以上。最终把 `Add` 挪到独立的 `watchRegistrar` goroutine，`run()` 只往有界 channel 投递（满则丢弃并打日志，绝不阻塞事件循环）。本机 40 连跑约 1.0s 通过。
+2. **`kanban.Service` 完全没有关闭路径**。sqlite 句柄和后台 goroutine 一直活到进程退出。补了 `Close()` + goroutine 生命周期（`closed` 标志 + WaitGroup + service ctx），关闭后 `taskStore` 拒绝新请求。
+   ⚠️ **注意**：`server/app` 里**至今没有任何地方调 `Close()`**——那里根本没有优雅退出路径。目前唯一调用方是测试辅助函数。
+3. **`Close()` 里 cancel 的顺序会漏掉一个打开的 sqlite 文件句柄**。先 cancel 再 wait 看着更整齐，实际会坑调用方：查询被中途取消时 `database/sql` **会在自己的 goroutine 上拆连接**，于是 `Close()` 已经返回、sqlite 却还占着文件，调用方紧接着删目录就在 Windows 上失败。改为**先 drain（5s 上限）、cancel 只作兜底**。
+
+#### 安全说明（已记录，未修）
+
+Windows 上本地 CLI token 文件（`server/app/local_cli_token.go`）与 relay 凭据文件**没有权限保护**：`os.Chmod` 在 Windows 只切换只读属性，`Perm()` 实测报 0666 而非预期的 0600。要真正限制需要设 ACL。两处测试断言已按平台跳过并在注释里标注为独立的加固事项。
+
+#### 已知的上游测试隔离缺陷（非本次引入）
+
+`relay` 包的 `TestManagerPollTerminalBindStatusStopsPolling` 在**全新进程中单独 `-run` 必挂**（5.85s 超时），但在包内跑第 2 轮起就过，跑完整 `go test ./...` 也过。已用 `git checkout` 取上游原版 `service_test.go` 复现 3/3——**证实是上游遗留的隔离问题**（依赖同包更早测试留下的进程内状态），不是本次改动的回归。CI 双平台均绿，故未动。
+
+**本机验收（Windows, go1.26.5）**：`go build ./...` / `go vet ./...` 干净；`go test ./... -count=1` **全部包零失败**；kanban `-count=20` 绿；`fs` 并发测试 40 连跑绿。
+`-race` 本机不可用（需 `CGO_ENABLED=1` + C 工具链），仅靠 CI。
+`gofmt -l` 会列出全仓库约 130 个文件，**是 `core.autocrlf=true` 的 CRLF 产物，不是格式漂移**（对未改动文件 `gofmt -d` 的 diff 只有 `^M`）；CI 也不跑 gofmt，只跑 `go vet` + `go test`。
 
 ### 阶段 1 —— 当天见效（低风险）
 
@@ -262,3 +296,7 @@ git push -u origin main
 | Windows 放开探测弹出黑窗 | 只对 `acp` 协议放开（§2.5 方案 A） |
 | 改 ActionBar 破坏国产输入法 | 讯飞 / 搜狗 IME 回车回归测试（§2.6） |
 | fork 与上游分叉 | 阶段 0 建 upstream remote；改动尽量收敛在少数文件，避开 `App.tsx` 高频冲突区 |
+| 在事件循环里调 `watcher.Add()`（Windows 死锁） | 任何新增的 fsnotify 注册都必须走 `queueWatchDir`，不得在 `run()` 里内联 `Add`（阶段 0.5） |
+| `kanban.Service` 至今无人调 `Close()` | `server/app` 缺优雅退出路径。若后续要落 worktree/看板改动，先补一条 shutdown 链（阶段 0.5 已备好 `Close()`） |
+| 取消 context 后立刻删目录（Windows 失败） | `database/sql` 会异步拆连接。先 drain 再 cancel，`Close()` 返回后文件句柄才真正释放（阶段 0.5） |
+| Windows 上 token / 凭据文件权限形同虚设 | `os.Chmod` 只切只读属性。要真正限制需设 ACL——独立加固事项，未做（阶段 0.5） |
