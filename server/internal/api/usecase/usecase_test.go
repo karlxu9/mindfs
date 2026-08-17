@@ -15,6 +15,7 @@ import (
 
 	"mindfs/server/internal/agent"
 	agenttypes "mindfs/server/internal/agent/types"
+	"mindfs/server/internal/commandexec"
 	rootfs "mindfs/server/internal/fs"
 	"mindfs/server/internal/preferences"
 	"mindfs/server/internal/session"
@@ -230,6 +231,11 @@ func TestSendCommandMessagePersistsFinalToolCallAndSuggestion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create command session: %v", err)
 	}
+	// A command session leaves a long-lived shell behind, cached by
+	// (rootID, sessionKey). Its cwd is rootDir, and Windows will not remove a
+	// directory that a live process is sitting in, so t.TempDir cleanup fails
+	// unless the shell is closed here.
+	t.Cleanup(func() { commandexec.CloseSession(root.ID, created.Key) })
 
 	var sawStart, sawFinal, sawDone bool
 	err = service.SendMessage(context.Background(), SendMessageInput{

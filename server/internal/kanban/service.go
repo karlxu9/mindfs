@@ -31,27 +31,83 @@ type Service struct {
 	stores       map[string]*TaskStore
 	scheduleRun  map[string]bool
 	schedulePend map[string]bool
+
+	// Background scheduling and task execution are fire-and-forget goroutines.
+	// closed/bg/bgCancel give them a lifecycle so Close can drain them instead
+	// of closing the stores out from under work that is still running.
+	closed   bool
+	bg       sync.WaitGroup
+	bgCtx    context.Context
+	bgCancel context.CancelFunc
 }
 
 var errStopTaskExecution = errors.New("stop task execution")
 
 func NewService(templates *TemplateStore, roots RootProvider) *Service {
-	return &Service{Templates: templates, Roots: roots, stores: map[string]*TaskStore{}, scheduleRun: map[string]bool{}, schedulePend: map[string]bool{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Service{
+		Templates:    templates,
+		Roots:        roots,
+		stores:       map[string]*TaskStore{},
+		scheduleRun:  map[string]bool{},
+		schedulePend: map[string]bool{},
+		bgCtx:        ctx,
+		bgCancel:     cancel,
+	}
 }
 
-// Close releases every task store this service has opened. It is safe to call
-// more than once, and safe on a nil receiver.
+// beginBackground reserves a slot for a background goroutine. It returns the
+// context that goroutine should run under, or ok=false if the service is
+// already closing and the goroutine must not start.
 //
-// The service had no way to release its sqlite handles before this, so they
-// lived until the process exited. Nothing in server/app calls Close yet -- there
-// is no graceful-shutdown path there at all -- so today the only caller is the
-// test helper, which needs it because Windows refuses to unlink the open
-// task-kanban.db during t.TempDir cleanup. Wiring a real shutdown sequence is a
-// separate change.
+// Callers must hold s.mu.
+func (s *Service) beginBackgroundLocked() (context.Context, bool) {
+	if s.closed {
+		return nil, false
+	}
+	ctx := s.bgCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.bg.Add(1)
+	return ctx, true
+}
+
+// Close stops background scheduling and task execution, waits for whatever is
+// already running to finish, and releases every task store the service opened.
+// It is safe to call more than once, and safe on a nil receiver.
+//
+// The service had no way to shut down before this, so its sqlite handles and
+// goroutines lived until the process exited. Nothing in server/app calls Close
+// yet -- there is no graceful-shutdown path there at all -- so today the only
+// caller is the test helper, which needs it because Windows refuses to unlink
+// the open task-kanban.db during t.TempDir cleanup. Wiring a real shutdown
+// sequence into the server is a separate change.
+//
+// Draining is not optional: closing the stores while a scheduler goroutine is
+// mid-flight makes it fail with "database is closed" and then reopen the DB,
+// recreating .mindfs/tasks after the caller believed it was done with the
+// directory.
 func (s *Service) Close() error {
 	if s == nil {
 		return nil
 	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closed = true
+	cancel := s.bgCancel
+	s.mu.Unlock()
+
+	// Cancel first so in-flight work unwinds promptly, then wait for it. Wait
+	// must happen without s.mu held: the background goroutines take that lock.
+	if cancel != nil {
+		cancel()
+	}
+	s.bg.Wait()
+
 	// Detach the map under the lock and close outside it, so a slow Close
 	// never blocks callers waiting on s.mu.
 	s.mu.Lock()
@@ -559,20 +615,27 @@ func (s *Service) Schedule(rootID string) {
 		s.mu.Unlock()
 		return
 	}
+	ctx, ok := s.beginBackgroundLocked()
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
 	s.scheduleRun[rootID] = true
 	s.mu.Unlock()
 	go func() {
+		defer s.bg.Done()
 		for {
-			if err := s.schedule(context.Background(), rootID); err != nil {
+			if err := s.schedule(ctx, rootID); err != nil {
 				log.Printf("[kanban] schedule.error root=%s err=%v", rootID, err)
 			}
 			s.mu.Lock()
-			pending := s.schedulePend[rootID]
+			pending := s.schedulePend[rootID] && ctx.Err() == nil
 			if pending {
 				delete(s.schedulePend, rootID)
 				s.mu.Unlock()
 				continue
 			}
+			delete(s.schedulePend, rootID)
 			delete(s.scheduleRun, rootID)
 			s.mu.Unlock()
 			return
@@ -589,10 +652,19 @@ func (s *Service) RunTask(rootID, taskID string) {
 	if rootID == "" || taskID == "" {
 		return
 	}
+	s.mu.Lock()
+	ctx, ok := s.beginBackgroundLocked()
+	s.mu.Unlock()
+	if !ok {
+		return
+	}
 	go func() {
-		if err := s.executeTask(context.Background(), rootID, taskID); err != nil {
+		defer s.bg.Done()
+		if err := s.executeTask(ctx, rootID, taskID); err != nil {
 			log.Printf("[kanban] task.execute.error root=%s task=%s err=%v", rootID, taskID, err)
 		}
+		// Schedule declines to start once the service is closing, so this does
+		// not resurrect work during Close.
 		s.Schedule(rootID)
 	}()
 }
@@ -1218,6 +1290,11 @@ func (s *Service) taskStore(rootID string) (*TaskStore, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Refuse to open a new handle once Close has run, otherwise a straggler
+	// recreates .mindfs/tasks after the caller is done with the directory.
+	if s.closed {
+		return nil, errors.New("kanban service closed")
+	}
 	if s.stores == nil {
 		s.stores = map[string]*TaskStore{}
 	}
