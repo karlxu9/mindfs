@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -37,7 +38,11 @@ func TestShellCommandUsesConfiguredArgs(t *testing.T) {
 	if shell != fallback {
 		t.Fatalf("shell = %q, want %q", shell, fallback)
 	}
-	if len(args) != 2 || args[0] != "-custom" || args[1] != "echo ok" {
+	// The payload is asserted with a suffix match, not equality: on Windows
+	// shellCommandPayload prepends a UTF-8 console setup preamble for
+	// PowerShell. What matters here is that configured args come first and the
+	// command comes last.
+	if len(args) != 2 || args[0] != "-custom" || !strings.HasSuffix(args[1], "echo ok") {
 		t.Fatalf("args = %#v, want configured args plus command", args)
 	}
 }
@@ -88,7 +93,11 @@ func TestLongShellBootstrapDisablesUserHistory(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.shell, func(t *testing.T) {
-			bootstrap := longShellBootstrap(tt.shell)
+			// Pin the OS rather than using longShellBootstrap: these are POSIX
+			// shells, and on a Windows host the OS-dispatched variant returns
+			// "". Mirrors TestLongShellBootstrapDisablesPowerShellHistory,
+			// which pins "windows" for the same reason.
+			bootstrap := longShellBootstrapForOS(tt.shell, "linux")
 			for _, want := range tt.want {
 				if !strings.Contains(bootstrap, want) {
 					t.Fatalf("bootstrap for %s does not contain %q: %q", tt.shell, want, bootstrap)
@@ -108,7 +117,7 @@ func TestLongShellBootstrapDisablesPowerShellHistory(t *testing.T) {
 }
 
 func TestLongShellEnvOverridesHistoryFile(t *testing.T) {
-	env := longShellEnv([]string{"HISTFILE=/tmp/user-history"}, "zsh")
+	env := longShellEnvForOS([]string{"HISTFILE=/tmp/user-history"}, "zsh", "linux")
 	if got := lastEnvValue(env, "HISTFILE"); got != "/dev/null" {
 		t.Fatalf("HISTFILE = %q, want /dev/null", got)
 	}
@@ -172,6 +181,12 @@ func TestLongShellDoesNotFeedControlScriptToCommandStdin(t *testing.T) {
 }
 
 func TestLongShellEvalKeepsShellState(t *testing.T) {
+	// On Windows, LookPath finds Git Bash's sh, but its pwd emits MSYS paths
+	// (/tmp/..., /c/Users/...) that filepath.EvalSymlinks cannot resolve. The
+	// shell-state behaviour under test is POSIX-only anyway.
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell session state; sh on Windows reports MSYS paths")
+	}
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("sh not available")
 	}

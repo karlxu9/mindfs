@@ -13,10 +13,28 @@ import (
 	rootfs "mindfs/server/internal/fs"
 )
 
+// newTestManager builds a Manager and closes its session-list DB when the test
+// ends.
+//
+// Without the Shutdown, t.TempDir cleanup fails on Windows: the sqlite handle
+// keeps session-list.db open, and Windows refuses to unlink a file that is
+// still in use. POSIX allows unlinking open files, which is why this only ever
+// surfaced on Windows.
+func newTestManager(t *testing.T, root rootfs.RootInfo, opts ...Option) *Manager {
+	t.Helper()
+	manager := NewManager(root, opts...)
+	t.Cleanup(func() {
+		if err := manager.Shutdown(); err != nil {
+			t.Errorf("session manager shutdown: %v", err)
+		}
+	})
+	return manager
+}
+
 func TestManagerUsesSessionDBLink(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 
 	linkedDB := filepath.Join(t.TempDir(), "session-list.db")
 	linkFile := filepath.Join(root.MetaDir(), "sessions", "session-list.db.link")
@@ -37,7 +55,7 @@ func TestManagerUsesSessionDBLink(t *testing.T) {
 
 func TestManagerExternalCursorSurvivesAgentStateUpdate(t *testing.T) {
 	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 	created, err := manager.Create(context.Background(), CreateInput{Type: TypeChat, Agent: "codex", Name: "Cursor"})
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +82,7 @@ func TestManagerExternalCursorSurvivesAgentStateUpdate(t *testing.T) {
 func TestManagerRecordRelatedWorktreeDoesNotOverwriteExisting(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 
 	created, err := manager.Create(context.Background(), CreateInput{Type: TypeChat, Name: "Worktree"})
 	if err != nil {
@@ -101,7 +119,7 @@ func TestManagerRecordRelatedWorktreeDoesNotOverwriteExisting(t *testing.T) {
 func TestManagerRelatedFilesAreScopedByRepoHeadAndPath(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 
 	created, err := manager.Create(context.Background(), CreateInput{Type: TypeChat, Name: "Related repos"})
 	if err != nil {
@@ -144,7 +162,7 @@ func TestManagerRelatedFilesAreScopedByRepoHeadAndPath(t *testing.T) {
 func TestManagerRecordsSubSessionRelatedFileOnParent(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 
 	parent, err := manager.Create(context.Background(), CreateInput{Type: TypeChat, Name: "Parent"})
 	if err != nil {
@@ -188,7 +206,7 @@ func TestManagerRecordsSubSessionRelatedFileOnParent(t *testing.T) {
 func TestManagerFallsBackToUserDataSessionDBOnSQLitePanic(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("panic-root", "panic-root", rootDir)
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 
 	originalOpen := openSQLiteDB
 	originalConfigDir := mindFSConfigDir
@@ -232,7 +250,7 @@ func TestManagerFallsBackToUserDataSessionDBOnSQLitePanic(t *testing.T) {
 
 func TestManagerPersistsParentSessionMetadata(t *testing.T) {
 	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 
 	created, err := manager.Create(context.Background(), CreateInput{
 		Type:             TypeChat,
@@ -261,7 +279,7 @@ func TestManagerPersistsParentSessionMetadata(t *testing.T) {
 func TestManagerPersistsPinnedAtWithoutChangingUpdatedAt(t *testing.T) {
 	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
 	now := time.Date(2026, 7, 30, 10, 0, 0, 0, time.UTC)
-	manager := NewManager(root, WithClock(func() time.Time { return now }))
+	manager := newTestManager(t, root, WithClock(func() time.Time { return now }))
 
 	created, err := manager.Create(context.Background(), CreateInput{Type: TypeChat, Name: "Pinned"})
 	if err != nil {
@@ -307,7 +325,7 @@ func TestManagerPersistsPinnedAtWithoutChangingUpdatedAt(t *testing.T) {
 
 func TestManagerPersistsExchangeModelDisplayName(t *testing.T) {
 	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 
 	created, err := manager.Create(context.Background(), CreateInput{
 		Type:  TypeChat,
@@ -340,7 +358,7 @@ func TestManagerPersistsExchangeModelDisplayName(t *testing.T) {
 
 func TestManagerPersistsLastContextWindow(t *testing.T) {
 	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 
 	created, err := manager.Create(context.Background(), CreateInput{
 		Type:  TypeChat,
@@ -372,7 +390,7 @@ func TestManagerPersistsLastContextWindow(t *testing.T) {
 
 func TestManagerStoresFullToolCallAndReturnsCompactedAux(t *testing.T) {
 	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 
 	created, err := manager.Create(context.Background(), CreateInput{
 		Type: TypeChat,
@@ -430,7 +448,7 @@ func TestManagerStoresFullToolCallAndReturnsCompactedAux(t *testing.T) {
 
 func TestManagerStoresPlanAndCompactAux(t *testing.T) {
 	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 
 	created, err := manager.Create(context.Background(), CreateInput{
 		Type: TypeChat,
@@ -478,7 +496,7 @@ func TestManagerStoresPlanAndCompactAux(t *testing.T) {
 
 func TestManagerStoresTodoAux(t *testing.T) {
 	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 
 	created, err := manager.Create(context.Background(), CreateInput{
 		Type: TypeChat,
@@ -512,7 +530,7 @@ func TestManagerStoresTodoAux(t *testing.T) {
 
 func TestManagerGetFullToolCallReadsPendingAuxBeforeDisk(t *testing.T) {
 	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 
 	created, err := manager.Create(context.Background(), CreateInput{
 		Type: TypeChat,
@@ -571,7 +589,7 @@ func TestManagerGetFullToolCallReadsPendingAuxBeforeDisk(t *testing.T) {
 
 func TestManagerMarkPendingAskUserAnsweredMergesAnswers(t *testing.T) {
 	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
-	manager := NewManager(root)
+	manager := newTestManager(t, root)
 
 	created, err := manager.Create(context.Background(), CreateInput{
 		Type: TypeChat,

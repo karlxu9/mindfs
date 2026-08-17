@@ -41,7 +41,7 @@ func TestExternalSessionDeltaAfterCtxSeqReturnsEmptyWhenFullySynced(t *testing.T
 
 func TestSyncExternalSessionDeltaFastDoesNotApplyCtxSeqToFilteredImport(t *testing.T) {
 	root := fs.NewRootInfo("root", "Root", t.TempDir())
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	created, err := manager.Create(context.Background(), session.CreateInput{
 		Type:  session.TypeChat,
 		Agent: "codex",
@@ -102,7 +102,7 @@ func TestSyncExternalSessionDeltaFastDoesNotApplyCtxSeqToFilteredImport(t *testi
 
 func TestImportExternalSessionOnlyPersistsSelectedAuxKinds(t *testing.T) {
 	root := fs.NewRootInfo("root", "Root", t.TempDir())
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	importer := &syncDeltaTestImporter{
 		exchanges: []agenttypes.ImportedExchange{
 			{Role: "user", Content: "inspect"},
@@ -205,7 +205,7 @@ func TestImportExternalSessionOnlyPersistsSelectedAuxKinds(t *testing.T) {
 func TestImportExternalSessionCreatesNativeSubagentSession(t *testing.T) {
 	ctx := context.Background()
 	root := fs.NewRootInfo("root", "Root", t.TempDir())
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	importer := &syncDeltaTestImporter{
 		exchanges: []agenttypes.ImportedExchange{{Role: "user", Content: "delegate"}},
 		subagents: []agenttypes.ImportedSubagentSession{{
@@ -247,7 +247,7 @@ func TestImportExternalSessionCreatesNativeSubagentSession(t *testing.T) {
 func TestImportExternalSessionPersistsPlanAux(t *testing.T) {
 	ctx := context.Background()
 	root := fs.NewRootInfo("root", "Root", t.TempDir())
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	importer := &syncDeltaTestImporter{
 		exchanges: []agenttypes.ImportedExchange{{
 			Role: "agent",

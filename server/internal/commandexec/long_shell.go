@@ -180,8 +180,12 @@ func newLongShellSession(_ context.Context, key string, opts Options) (*longShel
 }
 
 func longShellEnv(extra []string, shell string) []string {
+	return longShellEnvForOS(extra, shell, runtime.GOOS)
+}
+
+func longShellEnvForOS(extra []string, shell, goos string) []string {
 	env := commandEnv(extra)
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
 		return env
 	}
 	switch strings.ToLower(filepath.Base(shell)) {

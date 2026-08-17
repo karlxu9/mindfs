@@ -39,6 +39,38 @@ func NewService(templates *TemplateStore, roots RootProvider) *Service {
 	return &Service{Templates: templates, Roots: roots, stores: map[string]*TaskStore{}, scheduleRun: map[string]bool{}, schedulePend: map[string]bool{}}
 }
 
+// Close releases every task store this service has opened. It is safe to call
+// more than once, and safe on a nil receiver.
+//
+// The service had no way to release its sqlite handles before this, so they
+// lived until the process exited. Nothing in server/app calls Close yet -- there
+// is no graceful-shutdown path there at all -- so today the only caller is the
+// test helper, which needs it because Windows refuses to unlink the open
+// task-kanban.db during t.TempDir cleanup. Wiring a real shutdown sequence is a
+// separate change.
+func (s *Service) Close() error {
+	if s == nil {
+		return nil
+	}
+	// Detach the map under the lock and close outside it, so a slow Close
+	// never blocks callers waiting on s.mu.
+	s.mu.Lock()
+	stores := s.stores
+	s.stores = map[string]*TaskStore{}
+	s.mu.Unlock()
+
+	var firstErr error
+	for _, store := range stores {
+		if store == nil {
+			continue
+		}
+		if err := store.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 func (s *Service) SetRunner(runner Runner) {
 	if s == nil {
 		return

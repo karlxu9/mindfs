@@ -20,6 +20,24 @@ import (
 	"mindfs/server/internal/session"
 )
 
+// newTestManager builds a session manager and closes its session-list DB when
+// the test ends.
+//
+// Without the Shutdown, t.TempDir cleanup fails on Windows: the sqlite handle
+// keeps .mindfs/sessions/session-list.db open, and Windows refuses to unlink a
+// file that is still in use. POSIX allows unlinking open files, which is why
+// this only ever surfaced on Windows.
+func newTestManager(t *testing.T, root rootfs.RootInfo, opts ...session.Option) *session.Manager {
+	t.Helper()
+	manager := session.NewManager(root, opts...)
+	t.Cleanup(func() {
+		if err := manager.Shutdown(); err != nil {
+			t.Errorf("session manager shutdown: %v", err)
+		}
+	})
+	return manager
+}
+
 func TestSaveUploadedFilesDefaultsToAttachmentDirAndRenamesConflicts(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
@@ -201,7 +219,7 @@ func TestGetGitDiffUsesRepoPath(t *testing.T) {
 func TestSendCommandMessagePersistsFinalToolCallAndSuggestion(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	registry := &commandTestRegistry{root: root, manager: manager}
 	service := Service{Registry: registry}
 
@@ -279,8 +297,8 @@ func TestSearchSessionsMultiRootIncludesRootIDs(t *testing.T) {
 	ctx := context.Background()
 	rootA := rootfs.NewRootInfo("root-a", "Root A", t.TempDir())
 	rootB := rootfs.NewRootInfo("root-b", "Root B", t.TempDir())
-	managerA := session.NewManager(rootA)
-	managerB := session.NewManager(rootB)
+	managerA := newTestManager(t, rootA)
+	managerB := newTestManager(t, rootB)
 	registry := &multiRootSearchTestRegistry{
 		roots:    []rootfs.RootInfo{rootA, rootB},
 		managers: map[string]*session.Manager{rootA.ID: managerA, rootB.ID: managerB},
@@ -322,8 +340,8 @@ func TestSearchSessionsMultiRootAppliesGlobalLimit(t *testing.T) {
 	ctx := context.Background()
 	rootA := rootfs.NewRootInfo("root-a", "Root A", t.TempDir())
 	rootB := rootfs.NewRootInfo("root-b", "Root B", t.TempDir())
-	managerA := session.NewManager(rootA)
-	managerB := session.NewManager(rootB)
+	managerA := newTestManager(t, rootA)
+	managerB := newTestManager(t, rootB)
 	registry := &multiRootSearchTestRegistry{
 		roots:    []rootfs.RootInfo{rootA, rootB},
 		managers: map[string]*session.Manager{rootA.ID: managerA, rootB.ID: managerB},
@@ -356,7 +374,7 @@ func TestSearchSessionsMultiRootAppliesGlobalLimit(t *testing.T) {
 func TestListSessionsReturnsPinnedSnapshotWithAfterTime(t *testing.T) {
 	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
 	now := time.Date(2026, 7, 30, 10, 0, 0, 0, time.UTC)
-	manager := session.NewManager(root, session.WithClock(func() time.Time { return now }))
+	manager := newTestManager(t, root, session.WithClock(func() time.Time { return now }))
 	registry := &commandTestRegistry{root: root, manager: manager}
 	service := Service{Registry: registry}
 
@@ -409,7 +427,7 @@ func usecaseSessionKeys(items []*session.Session) []string {
 func TestSendCommandMessagePersistsCancelledSuggestion(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	registry := &commandTestRegistry{root: root, manager: manager}
 	service := Service{Registry: registry}
 
@@ -465,7 +483,7 @@ func TestDeleteSessionDeletesSubSessionTree(t *testing.T) {
 	ctx := context.Background()
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	registry := &commandTestRegistry{root: root, manager: manager}
 	service := Service{Registry: registry}
 
@@ -503,7 +521,7 @@ func TestSubSessionSyntheticDonePersistsPartialResponse(t *testing.T) {
 	ctx := context.Background()
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	child, err := manager.Create(ctx, session.CreateInput{Type: session.TypeChat, Agent: "codex", Name: "child"})
 	if err != nil {
 		t.Fatalf("create child: %v", err)
@@ -546,7 +564,7 @@ func TestClaudeSubagentRouterCreatesChildSessionAndRoutesChunks(t *testing.T) {
 	ctx := context.Background()
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	parent, err := manager.Create(ctx, session.CreateInput{Type: session.TypeChat, Agent: "claude", Name: "parent"})
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
@@ -630,7 +648,7 @@ func TestClaudeSubagentRouterDoesNotCreateChildFromTaskIDOnly(t *testing.T) {
 	ctx := context.Background()
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	parent, err := manager.Create(ctx, session.CreateInput{Type: session.TypeChat, Agent: "claude", Name: "parent"})
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
@@ -693,7 +711,7 @@ func TestClaudeSubagentRouterRoutesTaskNotificationSummaryAndKeepsParentUpdate(t
 	ctx := context.Background()
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	parent, err := manager.Create(ctx, session.CreateInput{Type: session.TypeChat, Agent: "claude", Name: "parent"})
 	if err != nil {
 		t.Fatalf("create parent: %v", err)
@@ -968,7 +986,7 @@ func TestSendCommandMessageUsesLongShellPerSession(t *testing.T) {
 		t.Fatalf("mkdir nested: %v", err)
 	}
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	registry := &commandTestRegistry{root: root, manager: manager}
 	service := Service{Registry: registry}
 
@@ -1029,7 +1047,7 @@ func sendCommandAndFinal(t *testing.T, service Service, rootID, sessionKey, comm
 func TestSearchCommandCandidatesMergesMindFSAndShellHistory(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	if err := UpsertCommandSuggestion(manager, CommandSuggestion{
 		Command:      "git status",
 		Cwd:          ".",
@@ -1062,7 +1080,7 @@ func TestSearchCommandCandidatesMergesMindFSAndShellHistory(t *testing.T) {
 func TestSearchCommandCandidatesCleansMindFSControlHistory(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	historyFile := filepath.Join(rootDir, "zsh_history")
 	history := strings.Join([]string{
 		": 1710000000:0;command printf '\\n%s\\n' '__MINDFS_CMD_START_abc__'",
@@ -1216,6 +1234,8 @@ func TestRenameManagedDirRollsBackDirectoryWhenRegistryFails(t *testing.T) {
 func TestSkillCandidateProviderSearch(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
+	// Windows: os.UserHomeDir reads USERPROFILE, not HOME.
+	t.Setenv("USERPROFILE", homeDir)
 	rootDir := t.TempDir()
 	mustWriteFile(t, filepath.Join(homeDir, ".codex", "skills", "status", "SKILL.md"), "---\nname: status\ndescription: Home status skill\n---\n")
 	mustWriteFile(t, filepath.Join(homeDir, ".agents", "skills", "review", "SKILL.md"), "---\nname: review\ndescription: Shared review skill\n---\n")
@@ -1252,6 +1272,8 @@ func TestSkillCandidateProviderSearch(t *testing.T) {
 func TestSkillCandidateProviderSearchIncludesCodexPluginCacheSkills(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
+	// Windows: os.UserHomeDir reads USERPROFILE, not HOME.
+	t.Setenv("USERPROFILE", homeDir)
 	rootDir := t.TempDir()
 	mustWriteFile(t, filepath.Join(homeDir, ".codex", "plugins", "cache", "openai-primary-runtime", "documents", "26.1.0", "skills", "documents", "SKILL.md"), "---\nname: documents\ndescription: Old documents skill\n---\n")
 	mustWriteFile(t, filepath.Join(homeDir, ".codex", "plugins", "cache", "openai-primary-runtime", "documents", "26.10.0", "skills", "documents", "SKILL.md"), "---\nname: documents\ndescription: Current documents skill\n---\n")
@@ -1278,6 +1300,8 @@ func TestSkillCandidateProviderSearchIncludesCodexPluginCacheSkills(t *testing.T
 func TestSkillCandidateProviderSearchFollowsSymlinkedSkillDir(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
+	// Windows: os.UserHomeDir reads USERPROFILE, not HOME.
+	t.Setenv("USERPROFILE", homeDir)
 	rootDir := t.TempDir()
 	ssotDir := t.TempDir()
 	targetDir := filepath.Join(ssotDir, "linked")
@@ -1310,6 +1334,8 @@ func TestSkillCandidateProviderSearchFollowsSymlinkedSkillDir(t *testing.T) {
 func TestSkillCandidateProviderSearchExpandsNamespacedSkillBundle(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
+	// Windows: os.UserHomeDir reads USERPROFILE, not HOME.
+	t.Setenv("USERPROFILE", homeDir)
 	rootDir := t.TempDir()
 	ssotDir := t.TempDir()
 	targetDir := filepath.Join(ssotDir, "aegis-skills")
@@ -1350,6 +1376,8 @@ func TestSkillCandidateProviderSearchExpandsNamespacedSkillBundle(t *testing.T) 
 func TestSkillCandidateProviderSearchMatchesNamespacedChildName(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
+	// Windows: os.UserHomeDir reads USERPROFILE, not HOME.
+	t.Setenv("USERPROFILE", homeDir)
 	rootDir := t.TempDir()
 	mustWriteFile(t, filepath.Join(homeDir, ".agents", "skills", "aegis", "brainstorming", "SKILL.md"), "---\nname: brainstorming\ndescription: Aegis brainstorm\n---\n")
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
@@ -1370,6 +1398,8 @@ func TestSkillCandidateProviderSearchMatchesNamespacedChildName(t *testing.T) {
 func TestSkillCandidateProviderSearchSkipsNonDirectoryScanPath(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
+	// Windows: os.UserHomeDir reads USERPROFILE, not HOME.
+	t.Setenv("USERPROFILE", homeDir)
 	rootDir := t.TempDir()
 	mustWriteFile(t, filepath.Join(homeDir, ".codex"), "not a directory")
 	mustWriteFile(t, filepath.Join(homeDir, ".agents", "skills", "review", "SKILL.md"), "---\nname: review\ndescription: Shared review skill\n---\n")
@@ -1391,6 +1421,7 @@ func TestSkillCandidateProviderSearchSkipsNonDirectoryScanPath(t *testing.T) {
 func TestListLocalDirsDefaultsEmptyPathToHome(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
+	// Windows: os.UserHomeDir reads USERPROFILE, not HOME.
 	t.Setenv("USERPROFILE", homeDir)
 	mustWriteFile(t, filepath.Join(homeDir, "project-a", "README.md"), "a")
 	if err := os.MkdirAll(filepath.Join(homeDir, "project-b"), 0o755); err != nil {
@@ -1533,7 +1564,7 @@ func TestPromptCandidateProviderSearchReturnsNewestFirst(t *testing.T) {
 func TestSwitchReadHintPathUsesRuntimeRoot(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	created, err := manager.Create(context.Background(), session.CreateInput{
 		Type: session.TypeChat,
 		Name: "Task",
@@ -1828,7 +1859,7 @@ func TestIsNonRecoverableAgentError(t *testing.T) {
 func TestGetSessionContextWindowFallsBackToPersistedValue(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	current, err := manager.Create(context.Background(), session.CreateInput{
 		Type:  session.TypeChat,
 		Agent: "codex",
@@ -1861,7 +1892,7 @@ func TestGetSessionContextWindowFallsBackToPersistedValue(t *testing.T) {
 func TestRecoverAgentTurnStopsOnNonRecoverableError(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	current, err := manager.Create(context.Background(), session.CreateInput{
 		Type:  session.TypeChat,
 		Agent: "codex",
@@ -2101,7 +2132,7 @@ func (s *fakeUsecaseAgentSession) emit(event agenttypes.Event) {
 func TestCancelSessionTurnCancelsTransientActiveTurn(t *testing.T) {
 	rootDir := t.TempDir()
 	root := rootfs.NewRootInfo("mindfs", "mindfs", rootDir)
-	manager := session.NewManager(root)
+	manager := newTestManager(t, root)
 	service := Service{Registry: &commandTestRegistry{root: root, manager: manager}}
 	sessionKey := "transient-login-test"
 	turnCtx, cancel := context.WithCancel(context.Background())

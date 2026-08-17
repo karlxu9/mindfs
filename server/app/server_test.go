@@ -106,7 +106,17 @@ func TestAutoAddExternalProjectRootsSkipsGitWorktrees(t *testing.T) {
 	}
 	t.Setenv("CODEX_HOME", codexHome)
 	t.Setenv("HOME", filepath.Join(workspace, "home"))
-	t.Setenv("TMPDIR", filepath.Join(workspace, "tmp"))
+	// Windows: os.UserHomeDir reads USERPROFILE, not HOME.
+	t.Setenv("USERPROFILE", filepath.Join(workspace, "home"))
+	// autoAddExternalProjectRoots drops any path under os.TempDir, and workspace
+	// comes from t.TempDir -- so the temp dir has to be moved out of the way or
+	// mainRoot gets filtered out. os.TempDir reads TMPDIR on POSIX but TMP/TEMP
+	// on Windows, hence all three.
+	tempDir := filepath.Join(workspace, "tmp")
+	mkdirAll(t, tempDir)
+	t.Setenv("TMPDIR", tempDir)
+	t.Setenv("TMP", tempDir)
+	t.Setenv("TEMP", tempDir)
 
 	registry := fs.NewRegistry(filepath.Join(workspace, "registry.json"))
 	autoAddExternalProjectRoots(registry)

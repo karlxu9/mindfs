@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -215,7 +216,15 @@ func TestInstallLayoutPortable(t *testing.T) {
 
 func TestSafeArchiveTargetRejectsTraversal(t *testing.T) {
 	root := t.TempDir()
-	cases := []string{"../escape", "/tmp/escape", ".."}
+	// The absolute case has to match the host. filepath.IsAbs("/tmp/escape") is
+	// false on Windows, so safeArchiveTarget treats it as a relative name, joins
+	// it safely under root, and returns no error -- the assertion would fail on
+	// a path that was never actually an escape there.
+	absEscape := "/tmp/escape"
+	if runtime.GOOS == "windows" {
+		absEscape = `C:\escape`
+	}
+	cases := []string{"../escape", absEscape, ".."}
 	for _, name := range cases {
 		if _, err := safeArchiveTarget(root, name); err == nil {
 			t.Fatalf("safeArchiveTarget(%q) error = nil, want error", name)

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,8 @@ func TestGetOrCreateDeviceIDStable(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("HOME", configRoot)
+	// Windows: os.UserConfigDir reads APPDATA, not HOME/XDG_CONFIG_HOME.
+	t.Setenv("APPDATA", configRoot)
 
 	first, err := getOrCreateDeviceID()
 	if err != nil {
@@ -38,6 +41,8 @@ func TestCredentialsStoreSaveLoad(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("HOME", configRoot)
+	// Windows: os.UserConfigDir reads APPDATA, not HOME/XDG_CONFIG_HOME.
+	t.Setenv("APPDATA", configRoot)
 
 	store, err := NewCredentialsStore()
 	if err != nil {
@@ -68,7 +73,11 @@ func TestCredentialsStoreSaveLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("credentials file missing: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows has no POSIX permission bits: os.Chmod only toggles the read-only
+	// attribute, so Perm() reports 0666 regardless of the mode we asked for.
+	// Restricting the credentials file on Windows needs an ACL, which the store
+	// does not set today -- tracked as a separate hardening item.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("credentials file mode = %o, want 0600", info.Mode().Perm())
 	}
 }
@@ -77,6 +86,8 @@ func TestCredentialsStoreClear(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("HOME", configRoot)
+	// Windows: os.UserConfigDir reads APPDATA, not HOME/XDG_CONFIG_HOME.
+	t.Setenv("APPDATA", configRoot)
 
 	store, err := NewCredentialsStore()
 	if err != nil {
@@ -167,6 +178,8 @@ func TestServicePollBind(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("HOME", configRoot)
+	// Windows: os.UserConfigDir reads APPDATA, not HOME/XDG_CONFIG_HOME.
+	t.Setenv("APPDATA", configRoot)
 
 	svc, err := NewService(":7331", false)
 	if err != nil {
@@ -208,6 +221,8 @@ func TestServiceStoreRelayNodeNameFromHandshake(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("HOME", configRoot)
+	// Windows: os.UserConfigDir reads APPDATA, not HOME/XDG_CONFIG_HOME.
+	t.Setenv("APPDATA", configRoot)
 
 	svc, err := NewService(":7331", false)
 	if err != nil {
@@ -236,6 +251,8 @@ func TestManagerStartBindingGeneratesPendingCode(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("HOME", configRoot)
+	// Windows: os.UserConfigDir reads APPDATA, not HOME/XDG_CONFIG_HOME.
+	t.Setenv("APPDATA", configRoot)
 
 	manager, err := NewManager(":7331", false, "https://relay.example.com", false)
 	if err != nil {
@@ -272,6 +289,8 @@ func TestManagerNoRelayerDoesNotGeneratePendingCode(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("HOME", configRoot)
+	// Windows: os.UserConfigDir reads APPDATA, not HOME/XDG_CONFIG_HOME.
+	t.Setenv("APPDATA", configRoot)
 
 	manager, err := NewManager(":7331", true, "https://relay.example.com", false)
 	if err != nil {
@@ -295,6 +314,8 @@ func TestManagerPollConfirmedStartsRelay(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("HOME", configRoot)
+	// Windows: os.UserConfigDir reads APPDATA, not HOME/XDG_CONFIG_HOME.
+	t.Setenv("APPDATA", configRoot)
 
 	manager, err := NewManager(":7331", false, "https://relay.example.com", false)
 	if err != nil {
@@ -362,6 +383,8 @@ func TestManagerPollTerminalBindStatusStopsPolling(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("HOME", configRoot)
+	// Windows: os.UserConfigDir reads APPDATA, not HOME/XDG_CONFIG_HOME.
+	t.Setenv("APPDATA", configRoot)
 
 	manager, err := NewManager(":7331", false, "https://relay.example.com", false)
 	if err != nil {
@@ -419,6 +442,8 @@ func TestManagerDefaultsRelayBaseToLocalhost(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("HOME", configRoot)
+	// Windows: os.UserConfigDir reads APPDATA, not HOME/XDG_CONFIG_HOME.
+	t.Setenv("APPDATA", configRoot)
 
 	manager, err := NewManager(":7331", false, "", false)
 	if err != nil {
@@ -442,6 +467,8 @@ func TestManagerPermanentRelayErrorClearsCredentialsAndWaitsForExplicitRebind(t 
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("HOME", configRoot)
+	// Windows: os.UserConfigDir reads APPDATA, not HOME/XDG_CONFIG_HOME.
+	t.Setenv("APPDATA", configRoot)
 
 	manager, err := NewManager(":7331", false, "https://relay.example.com", false)
 	if err != nil {
@@ -503,6 +530,8 @@ func TestManagerStartClearsCredentialsWhenRelayBaseChanges(t *testing.T) {
 	configRoot := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configRoot)
 	t.Setenv("HOME", configRoot)
+	// Windows: os.UserConfigDir reads APPDATA, not HOME/XDG_CONFIG_HOME.
+	t.Setenv("APPDATA", configRoot)
 
 	manager, err := NewManager(":7331", false, "https://relay-new.example.com", false)
 	if err != nil {

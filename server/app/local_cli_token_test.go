@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -52,7 +53,11 @@ func TestLocalCLITokenStoreWritesSinglePrivateFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat token store: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows has no POSIX permission bits: os.Chmod only toggles the read-only
+	// attribute, so Perm() reports 0666 here no matter what mode we asked for.
+	// Restricting the token file on Windows needs an ACL, which the store does
+	// not set today -- tracked as a separate hardening item.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("token store mode = %o, want 0600", info.Mode().Perm())
 	}
 	raw, err := os.ReadFile(path)
@@ -72,5 +77,9 @@ func setTestConfigHome(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("HOME", dir)
+	// Windows resolves these from its own variables: os.UserConfigDir reads
+	// AppData and os.UserHomeDir reads USERPROFILE. Neither looks at
+	// HOME/XDG_CONFIG_HOME.
 	t.Setenv("AppData", dir)
+	t.Setenv("USERPROFILE", dir)
 }
