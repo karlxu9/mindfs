@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -65,8 +66,17 @@ type SharedFileWatcher struct {
 	onRelatedFile     func(RelatedFileEvent)
 	worktreeResolver  WorktreeResolver
 
+	// watchQueue hands newly discovered directories to a dedicated registrar
+	// goroutine. run() must never call watcher.Add itself -- see watchRegistrar.
+	watchQueue chan string
+
 	done chan struct{}
 }
+
+// watchQueueSize bounds how many newly created directories can be awaiting
+// registration. Deep enough that overflow needs hundreds of directories to
+// appear while a single Add is in flight.
+const watchQueueSize = 256
 
 type SessionFileRecorder interface {
 	RecordOutputFile(ctx context.Context, key, path string) error
@@ -137,6 +147,7 @@ func NewSharedFileWatcher(root RootInfo, sessions SessionFileRecorder, worktreeR
 		pendingWrites:     make(map[string]string),
 		pendingChanges:    make(map[string]FileChangeEvent),
 		pendingChangeDirs: make(map[string]struct{}),
+		watchQueue:        make(chan string, watchQueueSize),
 		done:              make(chan struct{}),
 	}
 	if err := sw.WatchDir("."); err != nil {
@@ -145,7 +156,42 @@ func NewSharedFileWatcher(root RootInfo, sessions SessionFileRecorder, worktreeR
 		return nil, err
 	}
 	go sw.run()
+	go sw.watchRegistrar()
 	return sw, nil
+}
+
+// watchRegistrar registers queued directories with fsnotify.
+//
+// This has to be a separate goroutine from run(). On Windows the
+// readDirChangesW backend serializes Add against event delivery: Add posts a
+// request and waits for the backend to answer, and the backend only answers
+// once it has finished handing off the event it is currently holding. If the
+// caller of Add is also the sole consumer of watcher.Events -- which run() is --
+// the two wait on each other forever. inotify and kqueue Add are plain
+// syscalls, so this only bites on Windows.
+func (sw *SharedFileWatcher) watchRegistrar() {
+	for {
+		select {
+		case dir := <-sw.watchQueue:
+			_ = sw.WatchDir(dir)
+		case <-sw.done:
+			return
+		}
+	}
+}
+
+// queueWatchDir asks the registrar to watch dir. It never blocks: blocking here
+// would stall run(), which is exactly the deadlock watchRegistrar exists to
+// avoid.
+func (sw *SharedFileWatcher) queueWatchDir(dir string) {
+	select {
+	case sw.watchQueue <- dir:
+	default:
+		// Queue full. Dropping means this directory may go unwatched until
+		// something else in it changes, which is better than stalling the event
+		// loop for every other directory.
+		log.Printf("[fs/watch] watch queue full, dropped root=%s dir=%s", sw.root.ID, dir)
+	}
 }
 
 func (sw *SharedFileWatcher) RegisterSession(sessionKey string) {
@@ -393,7 +439,7 @@ func (sw *SharedFileWatcher) run() {
 					Op:     event.Op.String(),
 					IsDir:  true,
 				})
-				_ = sw.WatchDir(rel)
+				sw.queueWatchDir(rel)
 				continue
 			}
 			sw.emitFileChange(FileChangeEvent{

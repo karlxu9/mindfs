@@ -56,6 +56,27 @@ func NewService(templates *TemplateStore, roots RootProvider) *Service {
 	}
 }
 
+// closeDrainTimeout bounds how long Close waits for background work to finish
+// on its own before cancelling it.
+const closeDrainTimeout = 5 * time.Second
+
+// waitWithTimeout waits for wg, reporting whether it finished within d.
+func waitWithTimeout(wg *sync.WaitGroup, d time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
 // beginBackground reserves a slot for a background goroutine. It returns the
 // context that goroutine should run under, or ok=false if the service is
 // already closing and the goroutine must not start.
@@ -101,12 +122,27 @@ func (s *Service) Close() error {
 	cancel := s.bgCancel
 	s.mu.Unlock()
 
-	// Cancel first so in-flight work unwinds promptly, then wait for it. Wait
-	// must happen without s.mu held: the background goroutines take that lock.
+	// Drain before cancelling, and without s.mu held (the background goroutines
+	// take that lock).
+	//
+	// Cancelling first looks tidier but breaks the caller: killing a query
+	// mid-flight makes database/sql tear the connection down on its own
+	// goroutine, so Close returns while sqlite still holds the file open and a
+	// caller that deletes the directory next fails on Windows. Letting the work
+	// finish returns the connection to the pool, where db.Close reclaims it
+	// synchronously.
+	//
+	// Cancel is the fallback for work that will not finish on its own -- a long
+	// agent turn -- so Close stays bounded.
+	if !waitWithTimeout(&s.bg, closeDrainTimeout) {
+		if cancel != nil {
+			cancel()
+		}
+		s.bg.Wait()
+	}
 	if cancel != nil {
 		cancel()
 	}
-	s.bg.Wait()
 
 	// Detach the map under the lock and close outside it, so a slow Close
 	// never blocks callers waiting on s.mu.
