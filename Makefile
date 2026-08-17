@@ -1,4 +1,4 @@
-.PHONY: help dev dev-backend dev-web build-web build build-android build-harmony install uninstall build-all start start-server test dist-clean publish-release-notes verify-release release tag
+.PHONY: help dev dev-backend dev-web build-web build build-android build-harmony install uninstall build-all start start-server test test-go test-web typecheck dist-clean publish-release-notes verify-release release tag
 
 GO ?= go
 NPM ?= npm
@@ -25,7 +25,10 @@ help:
 		"  make dist-clean   # remove dist/ directory" \
 		"  make start        # run mindfs on $(ADDR) with built static assets" \
 		"  make start-server # backend entrypoint serving built static assets" \
-		"  make test         # run Go tests" \
+		"  make test         # run Go and web tests" \
+		"  make test-go      # run Go tests only" \
+		"  make test-web     # run web tests only (needs web/node_modules)" \
+		"  make typecheck    # run web TypeScript typecheck" \
 		"  make tag TAG=v1.2.3  # create and push a git tag" \
 		"  make publish-release-notes TAG=v1.2.3  # commit and push release-notes.md if changed" \
 		"  make verify-release TAG=v1.2.3  # verify signed release manifest and artifacts in $(DIST_DIR)" \
@@ -66,8 +69,41 @@ start:
 start-server:
 	$(GO) run ./server/cmd/mindfs-server -addr $(ADDR)
 
-test:
+test: test-go test-web
+
+test-go:
 	$(GO) test ./...
+
+# Web tests are plain node scripts built on node:assert (no test framework).
+# Two constraints:
+#   1. Three of them resolve sources via path.resolve("src/..."), so the
+#      recipe must cd into $(WEB_DIR) before running them.
+#   2. Those same three transpile TypeScript at runtime, so they need
+#      $(WEB_DIR)/node_modules (the `typescript` devDependency) installed.
+#      Four others import .ts sources directly and rely on Node's native
+#      type stripping, which requires Node >= 22.18. The last one
+#      (agent-lifecycle-restart) only asserts on source text and needs
+#      neither.
+# All tests run even if an earlier one fails, so a single pass reports every
+# failure instead of just the first.
+test-web:
+	@test -d "$(WEB_DIR)/node_modules" || { \
+		echo "Error: $(WEB_DIR)/node_modules is missing. Run: cd $(WEB_DIR) && $(NPM) ci" >&2; \
+		exit 1; \
+	}
+	@cd $(WEB_DIR) && failed=""; \
+	for f in tests/*.test.mjs; do \
+		printf -- '-> %s\n' "$$f"; \
+		node "$$f" || failed="$$failed $$f"; \
+	done; \
+	if [ -n "$$failed" ]; then \
+		printf '\nFAILED web tests:%s\n' "$$failed" >&2; \
+		exit 1; \
+	fi; \
+	printf '\nall web tests passed\n'
+
+typecheck:
+	cd $(WEB_DIR) && $(NPM) run typecheck
 
 # ── Cross-platform distribution ──────────────────────────────────────────
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
