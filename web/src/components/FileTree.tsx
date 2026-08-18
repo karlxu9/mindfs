@@ -8,6 +8,7 @@ import {
   type FileEntry,
   sortDirectoryEntries,
 } from "../services/directorySort";
+import { formatProjectLocation } from "../services/projectPath";
 import { appPath } from "../services/base";
 import { protectedJSON } from "../services/api";
 import { bootstrapService } from "../services/bootstrap";
@@ -2423,6 +2424,11 @@ export function FileTree({
         const meta = fileMetas[entry.path];
         const hasSessionLink = !entry.is_dir && meta?.source_session;
         const isFromActiveSession = hasSessionLink && meta.source_session === activeSessionKey;
+        // Only projects get a location line; ordinary files sit under a root
+        // whose path is already on screen.
+        const rootLocationLabel = isManagedRootNode
+          ? formatProjectLocation(entry.rootPath)
+          : "";
         const rootIndicator = isManagedRootNode
           ? rootSessionIndicators[entry.path] || {}
           : null;
@@ -2504,6 +2510,19 @@ export function FileTree({
                   textOverflow: "ellipsis",
                   flex: 1,
                   marginLeft: "4px",
+                  minWidth: 0,
+                  // Stack only when there is a location line, so every other
+                  // row keeps its existing single-line inline layout.
+                  // flex-start matters: stretch would blow the root badge's
+                  // background out to the full row width.
+                  ...(rootLocationLabel
+                    ? {
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        gap: "1px",
+                      }
+                    : {}),
                 }}
               >
                 <span
@@ -2516,6 +2535,28 @@ export function FileTree({
                 >
                   {entry.name}
                 </span>
+                {rootLocationLabel ? (
+                  <span
+                    // The full path goes in title because the label is cut from
+                    // the left on purpose.
+                    title={entry.rootPath}
+                    style={{
+                      display: "block",
+                      maxWidth: "100%",
+                      fontSize: "11px",
+                      lineHeight: 1.3,
+                      color: "var(--text-secondary)",
+                      fontWeight: 400,
+                      opacity: 0.85,
+                      overflow: "hidden",
+                      whiteSpace: "nowrap",
+                      textOverflow: "ellipsis",
+                      direction: "ltr",
+                    }}
+                  >
+                    {rootLocationLabel}
+                  </span>
+                ) : null}
               </span>
               {showRootIndicator ? (
                 <span

@@ -1225,6 +1225,7 @@ function mapManagedRootsToEntries(dirs: ManagedRootPayload[]): FileEntry[] {
     path: dir.id,
     is_dir: true,
     is_root: true,
+    rootPath: dir.root_path,
     size: typeof dir.size === "number" ? dir.size : undefined,
     mtime: typeof dir.mtime === "string" ? dir.mtime : undefined,
   }));

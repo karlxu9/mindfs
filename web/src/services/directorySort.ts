@@ -6,6 +6,12 @@ export type FileEntry = {
   is_root?: boolean;
   size?: number;
   mtime?: string;
+  /**
+   * Absolute filesystem path of a managed root. Set client-side by
+   * mapManagedRootsToEntries for is_root rows only -- camelCase to mark it as
+   * synthesized, unlike the snake_case fields that come straight off the API.
+   */
+  rootPath?: string;
 };
 
 export type DirectorySortMode =
