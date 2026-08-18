@@ -45,8 +45,13 @@ func (r testRoots) ListRoots() []fs.RootInfo {
 }
 
 type fakeRunner struct {
-	mu                   sync.Mutex
-	execs                []AgentStageExecution
+	mu    sync.Mutex
+	execs []AgentStageExecution
+	// runEntered receives once per RunAgentStage call, and runGate holds that
+	// call open until closed -- together they let a test keep an agent "turn" in
+	// flight while it pokes the service.
+	runEntered           chan struct{}
+	runGate              chan struct{}
 	prompts              []string
 	runErr               error
 	worktreeErr          error
@@ -75,10 +80,25 @@ func (r *fakeRunner) EnsureAgentSession(ctx context.Context, exec AgentStageExec
 
 func (r *fakeRunner) RunAgentStage(ctx context.Context, exec AgentStageExecution) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.execs = append(r.execs, exec)
 	r.prompts = append(r.prompts, exec.Prompt)
-	return r.runErr
+	entered, gate, runErr := r.runEntered, r.runGate, r.runErr
+	r.mu.Unlock()
+	// Signal and block outside the lock, so a waiting test can still read execs.
+	if entered != nil {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+	}
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return runErr
 }
 
 func (r *fakeRunner) TaskUpdated(rootID string, detail TaskDetail) {}
@@ -935,6 +955,84 @@ func TestSchedulerRunsAgentStageAndStoresSessionKey(t *testing.T) {
 	}
 	if runner.execs[0].Run.SessionKey != agentRun.SessionKey {
 		t.Fatalf("runner session=%q, run session=%q", runner.execs[0].Run.SessionKey, agentRun.SessionKey)
+	}
+}
+
+// A single user action fans out into several RunTask triggers (Next calls both
+// Schedule and RunTask, and the scheduler calls RunTask again when it admits the
+// task). Before RunTask serialised per task, two executors could read the same
+// pending agent stage and each launch it, giving the user two agent turns for
+// one stage -- which showed up as a flaky "runner exec count=2, want 1".
+func TestRunTaskCoalescesTriggersDuringAgentTurn(t *testing.T) {
+	ctx := context.Background()
+	root := fs.NewRootInfo("root", "root", t.TempDir())
+	store := NewTemplateStoreAt(t.TempDir())
+	svc := newTestService(t, store, testRoots{root: root})
+	gate := make(chan struct{})
+	runner := &fakeRunner{runEntered: make(chan struct{}, 1), runGate: gate}
+	svc.SetRunner(runner)
+	tmpl, err := store.SaveTaskTemplate(TaskTemplate{
+		Name: "Agent Flow",
+		Stages: []TaskTemplateStage{{
+			Position: 0,
+			Snapshot: StageTemplate{Name: "Describe", Role: RoleUser},
+		}, {
+			Position: 1,
+			Snapshot: StageTemplate{
+				Name:               "Fix",
+				Role:               RoleAgent,
+				Agent:              "codex",
+				Model:              "gpt-5",
+				SessionReusePolicy: SessionReuseTaskMain,
+				PromptTemplate:     "Fix: {previous_input}",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("SaveTaskTemplate: %v", err)
+	}
+	detail, err := svc.CreateTask(ctx, CreateTaskInput{RootID: root.ID, TaskTemplateID: tmpl.ID, Input: "broken save button"})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	taskID := detail.Task.ID
+	if _, err := svc.Next(ctx, MoveInput{RootID: root.ID, TaskID: taskID, Reason: "ready for agent"}); err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+
+	// Wait until an executor is inside the agent turn, then pile on triggers.
+	select {
+	case <-runner.runEntered:
+	case <-time.After(5 * time.Second):
+		close(gate)
+		t.Fatalf("agent stage never started")
+	}
+	for i := 0; i < 5; i++ {
+		svc.RunTask(root.ID, taskID)
+	}
+	svc.Schedule(root.ID)
+	close(gate)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		detail, err = svc.GetTask(ctx, root.ID, taskID)
+		if err == nil && detail.Task.CurrentStageIndex == 1 && detail.Task.Status == StatusWaitingUser {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if detail.Task.CurrentStageIndex != 1 || detail.Task.Status != StatusWaitingUser {
+		t.Fatalf("task stage/status = %d/%s, want 1/waiting_user", detail.Task.CurrentStageIndex, detail.Task.Status)
+	}
+	// Give any straggling executor a chance to double-run before asserting.
+	time.Sleep(50 * time.Millisecond)
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+	if len(runner.execs) != 1 {
+		t.Fatalf("runner exec count=%d, want 1", len(runner.execs))
 	}
 }
 

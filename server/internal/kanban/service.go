@@ -31,6 +31,8 @@ type Service struct {
 	stores       map[string]*TaskStore
 	scheduleRun  map[string]bool
 	schedulePend map[string]bool
+	taskRun      map[string]bool
+	taskPend     map[string]bool
 
 	// Background scheduling and task execution are fire-and-forget goroutines.
 	// closed/bg/bgCancel give them a lifecycle so Close can drain them instead
@@ -51,6 +53,8 @@ func NewService(templates *TemplateStore, roots RootProvider) *Service {
 		stores:       map[string]*TaskStore{},
 		scheduleRun:  map[string]bool{},
 		schedulePend: map[string]bool{},
+		taskRun:      map[string]bool{},
+		taskPend:     map[string]bool{},
 		bgCtx:        ctx,
 		bgCancel:     cancel,
 	}
@@ -679,6 +683,20 @@ func (s *Service) Schedule(rootID string) {
 	}()
 }
 
+// RunTask drives a task forward in the background.
+//
+// Only one executor runs per task at a time. Requests that arrive while one is
+// in flight are coalesced into a single re-run afterwards, the same way Schedule
+// coalesces per root. Concurrent executors are not merely wasteful: two of them
+// reading the same pending agent stage both launch it, so the user gets two
+// agent turns for one stage. That is easy to hit because a single user action
+// fans out into several triggers -- Next calls Schedule and RunTask, and the
+// scheduler calls RunTask again once it admits the task.
+//
+// Coalescing means a request that lands mid-turn waits for that turn to finish,
+// since Runner.RunAgentStage blocks for its whole duration. Nothing is lost: the
+// stage move itself already happened synchronously in the caller, and the
+// pending flag guarantees the executor runs again to pick it up.
 func (s *Service) RunTask(rootID, taskID string) {
 	if s == nil || s.Runner == nil {
 		return
@@ -688,16 +706,42 @@ func (s *Service) RunTask(rootID, taskID string) {
 	if rootID == "" || taskID == "" {
 		return
 	}
+	key := rootID + "\x00" + taskID
 	s.mu.Lock()
-	ctx, ok := s.beginBackgroundLocked()
-	s.mu.Unlock()
-	if !ok {
+	if s.taskRun == nil {
+		s.taskRun = map[string]bool{}
+	}
+	if s.taskRun[key] {
+		if s.taskPend == nil {
+			s.taskPend = map[string]bool{}
+		}
+		s.taskPend[key] = true
+		s.mu.Unlock()
 		return
 	}
+	ctx, ok := s.beginBackgroundLocked()
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	s.taskRun[key] = true
+	s.mu.Unlock()
 	go func() {
 		defer s.bg.Done()
-		if err := s.executeTask(ctx, rootID, taskID); err != nil {
-			log.Printf("[kanban] task.execute.error root=%s task=%s err=%v", rootID, taskID, err)
+		for {
+			if err := s.executeTask(ctx, rootID, taskID); err != nil {
+				log.Printf("[kanban] task.execute.error root=%s task=%s err=%v", rootID, taskID, err)
+			}
+			s.mu.Lock()
+			pending := s.taskPend[key] && ctx.Err() == nil
+			delete(s.taskPend, key)
+			if pending {
+				s.mu.Unlock()
+				continue
+			}
+			delete(s.taskRun, key)
+			s.mu.Unlock()
+			break
 		}
 		// Schedule declines to start once the service is closing, so this does
 		// not resurrect work during Close.
