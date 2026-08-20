@@ -119,7 +119,7 @@ func TestAutoAddExternalProjectRootsSkipsGitWorktrees(t *testing.T) {
 	t.Setenv("TEMP", tempDir)
 
 	registry := fs.NewRegistry(filepath.Join(workspace, "registry.json"))
-	autoAddExternalProjectRoots(registry)
+	autoAddExternalProjectRoots(registry, nil)
 
 	roots := registry.List()
 	if len(roots) != 1 {

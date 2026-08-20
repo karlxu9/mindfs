@@ -21,6 +21,7 @@ import { fetchGitBranches, type GitBranchesPayload } from "../services/git";
 import { WorktreeBranchSelector } from "./WorktreeBranchSelector";
 import { NoWorktreeIcon } from "./NoWorktreeIcon";
 import { CodexRateLimitIndicator } from "./CodexRateLimitIndicator";
+import { deletePrompt, savePrompt } from "../services/prompts";
 
 type SessionInfo = {
   key: string;
@@ -454,6 +455,12 @@ export function ActionBar({
   );
   const [candidates, setCandidates] = useState<CandidateItem[]>([]);
   const [activeCandidateIndex, setActiveCandidateIndex] = useState(0);
+  const [addingPrompt, setAddingPrompt] = useState(false);
+  const [newPromptText, setNewPromptText] = useState("");
+  const [savingPrompt, setSavingPrompt] = useState(false);
+  const [deletingPrompt, setDeletingPrompt] = useState("");
+  const [promptSaveError, setPromptSaveError] = useState("");
+  const [promptCandidateRefresh, setPromptCandidateRefresh] = useState(0);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [createWorktree, setCreateWorktree] = useState(false);
   const [worktreeBranchMode, setWorktreeBranchMode] = useState<"new" | "existing">("new");
@@ -752,7 +759,16 @@ export function ActionBar({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [activeToken, currentRootId, agent, mode]);
+  }, [activeToken, currentRootId, agent, mode, promptCandidateRefresh]);
+
+  useEffect(() => {
+    if (activeToken?.type === "prompt") {
+      return;
+    }
+    setAddingPrompt(false);
+    setNewPromptText("");
+    setPromptSaveError("");
+  }, [activeToken?.type]);
 
   useEffect(() => {
     if (candidates.length === 0) {
@@ -890,6 +906,48 @@ export function ActionBar({
     syncEditorHeight();
   }, [activeToken, mode, serializedInput, syncEditorHeight]);
 
+  const cancelAddPrompt = useCallback(() => {
+    if (savingPrompt) return;
+    setAddingPrompt(false);
+    setNewPromptText("");
+    setPromptSaveError("");
+    requestAnimationFrame(() => editorRef.current?.focus());
+  }, [savingPrompt]);
+
+  const submitNewPrompt = useCallback(async () => {
+    const text = newPromptText.trim();
+    if (!text || savingPrompt) return;
+    setSavingPrompt(true);
+    setPromptSaveError("");
+    try {
+      await savePrompt(text);
+      setAddingPrompt(false);
+      setNewPromptText("");
+      setPromptCandidateRefresh((value) => value + 1);
+      requestAnimationFrame(() => editorRef.current?.focus());
+    } catch (error) {
+      setPromptSaveError(String((error as Error)?.message || t("action.addPromptFailed")));
+    } finally {
+      setSavingPrompt(false);
+    }
+  }, [newPromptText, savingPrompt, t]);
+
+  const removePrompt = useCallback(async (text: string) => {
+    if (deletingPrompt) return;
+    setDeletingPrompt(text);
+    setPromptSaveError("");
+    try {
+      await deletePrompt(text);
+      setCandidates((items) => items.filter((item) => item.type !== "prompt" || item.name !== text));
+      setActiveCandidateIndex(0);
+      setPromptCandidateRefresh((value) => value + 1);
+    } catch (error) {
+      setPromptSaveError(String((error as Error)?.message || t("action.deletePromptFailed")));
+    } finally {
+      setDeletingPrompt("");
+    }
+  }, [deletingPrompt, t]);
+
   const handleSend = useCallback(async () => {
     const messageText = serializedInput.trim();
     if ((!messageText && pendingAttachments.length === 0) || !isConnected || sending || (mode !== "command" && !agent)) return;
@@ -934,7 +992,7 @@ export function ActionBar({
           signal: uploadAbort.signal,
         });
         attachmentTokens = uploaded
-          .map((file) => `[file: ${file.path}]`)
+          .map((file) => `[file: ${file.agent_path || file.path}]`)
           .join("\n");
       }
       const payload = [messageText, attachmentTokens].filter(Boolean).join("\n");
@@ -1241,14 +1299,61 @@ export function ActionBar({
 
   return (
     <div data-onboarding="action-bar" style={{ width: "100%", minWidth: 0, padding: isMobile ? "0 0 var(--mindfs-actionbar-bottom-padding, calc(env(safe-area-inset-bottom, 0px) + 2px))" : "0 16px 12px", display: "flex", justifyContent: "center", boxSizing: "border-box", background: "var(--content-bg)" }}>
-      <div style={{ width: "100%", minWidth: 0, display: "flex", flexDirection: "column", gap: isMobile ? "0" : "6px" }}>
+      <div style={{ position: "relative", width: "100%", minWidth: 0, display: "flex", flexDirection: "column", gap: 0 }}>
+        {planModeActive || (!currentSession && currentRootIsGitRepo && mode !== "command") || (mode !== "command" && agent === "codex") ? (
+          <div
+            style={{
+              position: "absolute",
+              left: isMobile ? "36px" : "2px",
+              right: isMobile ? "36px" : "8px",
+              bottom: "100%",
+              zIndex: 7,
+              minWidth: 0,
+              display: "flex",
+              alignItems: "flex-end",
+              justifyContent: "space-between",
+              gap: "8px",
+              pointerEvents: "none",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                minWidth: 0,
+                pointerEvents: "auto",
+              }}
+            >
+              {planModeActive ? (
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "5px", height: "20px", padding: "0 5px 0 8px", borderRadius: "999px", border: "1px solid rgba(37, 99, 235, 0.22)", background: "linear-gradient(rgba(37, 99, 235, 0.10), rgba(37, 99, 235, 0.10)), var(--mobile-overlay-bg)", color: "#2563eb", fontSize: "11px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>
+                  <span>Plan</span>
+                  <button type="button" aria-label={t("action.closePlanMode")} title={t("action.closePlanMode")} onMouseDown={(event) => event.preventDefault()} onClick={() => void onSetPlanMode?.(false, planSessionKey, planRootId)} style={{ width: "14px", height: "14px", border: "none", borderRadius: "999px", background: "transparent", color: "currentColor", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: "14px", lineHeight: 1, padding: 0 }}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h24v24H0z" fill="none" /><path fill="currentColor" fillRule="evenodd" d="M21 12a9 9 0 1 1-18 0a9 9 0 0 1 18 0M7.293 16.707a1 1 0 0 1 0-1.414L10.586 12L7.293 8.707a1 1 0 0 1 1.414-1.414L12 10.586l3.293-3.293a1 1 0 1 1 1.414 1.414L13.414 12l3.293 3.293a1 1 0 0 1-1.414 1.414L12 13.414l-3.293 3.293a1 1 0 0 1-1.414 0" clipRule="evenodd" /></svg>
+                  </button>
+                </div>
+              ) : null}
+              {!currentSession && currentRootIsGitRepo ? (
+                <>
+                  <button type="button" onClick={() => setCreateWorktree((value) => !value)} disabled={sending} aria-label={createWorktree ? t("task.worktreeTitle") : t("task.noWorktreeTitle")} title={createWorktree ? t("task.worktreeTitle") : t("task.noWorktreeTitle")} style={{ height: "24px", borderRadius: "6px", border: createWorktree ? "1px solid rgba(22, 163, 74, 0.28)" : "1px solid var(--border-color)", background: createWorktree ? "linear-gradient(rgba(22, 163, 74, 0.08), rgba(22, 163, 74, 0.08)), var(--mobile-overlay-bg)" : "linear-gradient(rgba(100, 116, 139, 0.10), rgba(100, 116, 139, 0.10)), var(--mobile-overlay-bg)", color: createWorktree ? "#15803d" : "var(--text-secondary)", padding: createWorktree ? "0 8px" : "0 8px 0 5px", fontSize: "11px", fontWeight: 800, cursor: sending ? "not-allowed" : "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "3px" }}>
+                    {createWorktree ? "worktree" : <><NoWorktreeIcon size={12} />worktree</>}
+                  </button>
+                  {createWorktree ? <><WorktreeBranchSelector branchMode={worktreeBranchMode} branch={worktreeBranch} branches={worktreeBranches.branches} disabled={sending} maxWidth={isMobile ? 150 : 240} menuAlign={isMobile ? "left" : "right"} menuPlacement="top" onChange={(nextMode, nextBranch) => { setWorktreeBranchMode(nextMode); setWorktreeBranch(nextBranch); }} />{worktreeBranchesLoading ? <span style={{ fontSize: "11px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{t("common.loading")}</span> : worktreeBranchError ? <span title={worktreeBranchError} style={{ fontSize: "11px", color: "#b45309", whiteSpace: "nowrap" }}>{t("common.loadingFailed")}</span> : null}</> : null}
+                </>
+              ) : null}
+            </div>
+            <div style={{ pointerEvents: "auto" }}>
+              <CodexRateLimitIndicator agent={agent} refreshToken={codexRateLimitsRefreshToken} />
+            </div>
+          </div>
+        ) : null}
         {queuedMessages.length > 0 ? (
           <div
             style={{
               display: "flex",
               flexDirection: "column",
               gap: "3px",
-              padding: isMobile ? "0 31px 3px" : "0",
+              padding: isMobile ? "0 31px 4px" : "0 0 4px",
               maxHeight: isMobile ? "116px" : "144px",
               overflowY: "auto",
               scrollbarWidth: "thin",
@@ -1436,29 +1541,6 @@ export function ActionBar({
                 overflow: "visible",
               }}
             >
-			{planModeActive || (!currentSession && currentRootIsGitRepo && mode !== "command") || (mode !== "command" && agent === "codex") ? (
-			  <div style={{ position: "absolute", left: isMobile ? "4px" : "2px", right: isMobile ? "4px" : "8px", bottom: "calc(100% + 4px)", zIndex: 7, minWidth: 0, display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "8px", pointerEvents: "none" }}>
-				<div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0, pointerEvents: "auto" }}>
-				  {planModeActive ? (
-					<div style={{ display: "inline-flex", alignItems: "center", gap: "5px", height: "20px", padding: "0 5px 0 8px", borderRadius: "999px", border: "1px solid rgba(37, 99, 235, 0.22)", background: "linear-gradient(rgba(37, 99, 235, 0.10), rgba(37, 99, 235, 0.10)), var(--mobile-overlay-bg)", color: "#2563eb", fontSize: "11px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>
-					  <span>Plan</span>
-					  <button type="button" aria-label={t("action.closePlanMode")} title={t("action.closePlanMode")} onMouseDown={(event) => event.preventDefault()} onClick={() => void onSetPlanMode?.(false, planSessionKey, planRootId)} style={{ width: "14px", height: "14px", border: "none", borderRadius: "999px", background: "transparent", color: "currentColor", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: "14px", lineHeight: 1, padding: 0 }}>
-						<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h24v24H0z" fill="none" /><path fill="currentColor" fillRule="evenodd" d="M21 12a9 9 0 1 1-18 0a9 9 0 0 1 18 0M7.293 16.707a1 1 0 0 1 0-1.414L10.586 12L7.293 8.707a1 1 0 0 1 1.414-1.414L12 10.586l3.293-3.293a1 1 0 1 1 1.414 1.414L13.414 12l3.293 3.293a1 1 0 0 1-1.414 1.414L12 13.414l-3.293 3.293a1 1 0 0 1-1.414 0" clipRule="evenodd" /></svg>
-					  </button>
-					</div>
-				  ) : null}
-				  {!currentSession && currentRootIsGitRepo ? (
-					<>
-					<button type="button" onClick={() => setCreateWorktree((value) => !value)} disabled={sending} aria-label={createWorktree ? t("task.worktreeTitle") : t("task.noWorktreeTitle")} title={createWorktree ? t("task.worktreeTitle") : t("task.noWorktreeTitle")} style={{ height: "24px", borderRadius: "6px", border: createWorktree ? "1px solid rgba(22, 163, 74, 0.28)" : "1px solid var(--border-color)", background: createWorktree ? "linear-gradient(rgba(22, 163, 74, 0.08), rgba(22, 163, 74, 0.08)), var(--mobile-overlay-bg)" : "linear-gradient(rgba(100, 116, 139, 0.10), rgba(100, 116, 139, 0.10)), var(--mobile-overlay-bg)", color: createWorktree ? "#15803d" : "var(--text-secondary)", padding: createWorktree ? "0 8px" : "0 8px 0 5px", fontSize: "11px", fontWeight: 800, cursor: sending ? "not-allowed" : "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "3px" }}>
-					  {createWorktree ? "worktree" : <><NoWorktreeIcon size={12} />worktree</>}
-					</button>
-					{createWorktree ? <><WorktreeBranchSelector branchMode={worktreeBranchMode} branch={worktreeBranch} branches={worktreeBranches.branches} disabled={sending} maxWidth={isMobile ? 150 : 240} menuAlign={isMobile ? "left" : "right"} menuPlacement="top" onChange={(nextMode, nextBranch) => { setWorktreeBranchMode(nextMode); setWorktreeBranch(nextBranch); }} />{worktreeBranchesLoading ? <span style={{ fontSize: "11px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{t("common.loading")}</span> : worktreeBranchError ? <span title={worktreeBranchError} style={{ fontSize: "11px", color: "#b45309", whiteSpace: "nowrap" }}>{t("common.loadingFailed")}</span> : null}</> : null}
-					</>
-				  ) : null}
-				</div>
-				<div style={{ pointerEvents: "auto" }}><CodexRateLimitIndicator agent={agent} refreshToken={codexRateLimitsRefreshToken} /></div>
-			  </div>
-			) : null}
 	            <TokenEditor
 	              ref={editorRef}
 	              placeholder={inputPlaceholder}
@@ -1555,23 +1637,168 @@ export function ActionBar({
                         textAlign: "left",
                       }}
                     >
-                      <span style={{
-                        fontSize: "13px",
-                        fontWeight: 500,
-                        color: candidateNameColor(candidate.type, isDark),
-                        minWidth: 0,
-                        overflow: candidate.type === "command" ? "hidden" : "visible",
-                        textOverflow: candidate.type === "command" ? "ellipsis" : "clip",
-                        whiteSpace: candidate.type === "command" ? "nowrap" : "normal",
-                      }}>
-                        {candidate.type === "file" ? (mode === "command" ? candidate.name : `@${candidate.name}`) : candidate.type === "prompt" ? `#${candidate.name}` : candidate.type === "command" ? candidate.name : `/${candidate.name}`}
-                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%", minWidth: 0 }}>
+                        <span style={{
+                          fontSize: "13px",
+                          fontWeight: 500,
+                          color: candidateNameColor(candidate.type, isDark),
+                          minWidth: 0,
+                          flex: 1,
+                          overflow: candidate.type === "command" || candidate.type === "prompt" ? "hidden" : "visible",
+                          textOverflow: candidate.type === "command" || candidate.type === "prompt" ? "ellipsis" : "clip",
+                          whiteSpace: candidate.type === "command" || candidate.type === "prompt" ? "nowrap" : "normal",
+                        }}>
+                          {candidate.type === "file" ? (mode === "command" ? candidate.name : `@${candidate.name}`) : candidate.type === "prompt" ? `#${candidate.name}` : candidate.type === "command" ? candidate.name : `/${candidate.name}`}
+                        </span>
+                        {candidate.type === "prompt" ? (
+                          <button
+                            type="button"
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void removePrompt(candidate.name);
+                            }}
+                            disabled={!!deletingPrompt}
+                            aria-label={t("action.deletePrompt", { name: candidate.name })}
+                            title={t("common.delete")}
+                            style={{ width: "28px", height: "28px", margin: "-5px -4px -5px 0", flexShrink: 0, border: "none", borderRadius: "7px", background: "transparent", color: "#dc2626", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: deletingPrompt ? "wait" : "pointer", opacity: deletingPrompt && deletingPrompt !== candidate.name ? 0.35 : 1 }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6l-1 14H6L5 6" />
+                              <path d="M10 11v6" />
+                              <path d="M14 11v6" />
+                              <path d="M9 6V4h6v2" />
+                            </svg>
+                          </button>
+                        ) : null}
+                      </div>
                       {candidate.type !== "command" && candidate.description ? (
                         <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>{candidate.description}</span>
                       ) : null}
                     </div>
                   ))
                 )}
+                {activeToken.type === "prompt" ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "5px",
+                      padding: addingPrompt ? "8px" : 0,
+                      borderTop: "1px solid var(--menu-divider)",
+                      background: "var(--menu-bg)",
+                    }}
+                  >
+                    {addingPrompt ? (
+                      <>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <input
+                            value={newPromptText}
+                            onChange={(event) => {
+                              setNewPromptText(event.currentTarget.value);
+                              if (promptSaveError) setPromptSaveError("");
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                                event.preventDefault();
+                                void submitNewPrompt();
+                              } else if (event.key === "Escape") {
+                                event.preventDefault();
+                                cancelAddPrompt();
+                              }
+                            }}
+                            placeholder={t("action.addPromptPlaceholder")}
+                            aria-label={t("action.addPromptPlaceholder")}
+                            disabled={savingPrompt}
+                            autoFocus
+                            style={{
+                              minWidth: 0,
+                              flex: 1,
+                              height: "32px",
+                              padding: "0 9px",
+                              border: "1px solid var(--accent-color)",
+                              borderRadius: "8px",
+                              outline: "none",
+                              background: "var(--panel-bg)",
+                              color: "var(--text-primary)",
+                              fontSize: "13px",
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void submitNewPrompt()}
+                            disabled={!newPromptText.trim() || savingPrompt}
+                            aria-label={t("common.save")}
+                            title={t("common.save")}
+                            style={{ width: "32px", height: "32px", border: "none", borderRadius: "8px", background: "transparent", color: newPromptText.trim() && !savingPrompt ? "var(--accent-color)" : "var(--text-secondary)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: newPromptText.trim() && !savingPrompt ? "pointer" : "not-allowed", opacity: newPromptText.trim() && !savingPrompt ? 1 : 0.45 }}
+                          >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M20 6 9 17l-5-5" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelAddPrompt}
+                            disabled={savingPrompt}
+                            aria-label={t("common.cancel")}
+                            title={t("common.cancel")}
+                            style={{ width: "32px", height: "32px", border: "none", borderRadius: "8px", background: "transparent", color: "var(--text-secondary)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: savingPrompt ? "not-allowed" : "pointer" }}
+                          >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M18 6 6 18" />
+                              <path d="m6 6 12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                        {promptSaveError ? (
+                          <div role="alert" style={{ padding: "0 2px", color: "#dc2626", fontSize: "11px", lineHeight: 1.4 }}>
+                            {promptSaveError}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        {promptSaveError ? (
+                          <div role="alert" style={{ padding: "7px 12px 0", color: "#dc2626", fontSize: "11px", lineHeight: 1.4 }}>
+                            {promptSaveError}
+                          </div>
+                        ) : null}
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setPromptSaveError("");
+                            setAddingPrompt(true);
+                          }}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "7px",
+                            width: "100%",
+                            padding: "9px 12px",
+                            border: "none",
+                            background: "transparent",
+                            color: "var(--accent-color)",
+                            fontSize: "13px",
+                            fontWeight: 600,
+                            textAlign: "left",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+                            <path d="M12 5v14" />
+                            <path d="M5 12h14" />
+                          </svg>
+                          {t("action.addPrompt")}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

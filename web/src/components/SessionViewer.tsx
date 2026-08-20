@@ -15,6 +15,10 @@ import { copyText } from "../services/clipboard";
 import type { AgentStatus } from "../services/agents";
 import { useI18n, type Locale } from "../i18n";
 import { formatSessionDuration } from "../services/sessionDuration";
+import {
+  relatedFileStatKey,
+  useRelatedFileStats,
+} from "../hooks/useRelatedFileStats";
 
 type SessionItem = {
   key?: string;
@@ -1020,7 +1024,6 @@ function SessionViewerInner({
   composerOverlayInset = 0,
 }: SessionViewerProps) {
   const { locale, t } = useI18n();
-  const [showAllFiles, setShowAllFiles] = useState(false);
   const [relatedFilesCollapsed, setRelatedFilesCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(() => {
     if (typeof window === "undefined") {
@@ -1036,7 +1039,6 @@ function SessionViewerInner({
   >({});
   const scrollEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const useInnerScrollContainer = interactionMode !== "drawer";
   const onFileClickRef = useRef(onFileClick);
   const copyResetTimersRef = useRef<Record<string, number>>({});
   const relatedFilesDefaultStateRef = useRef<string>("");
@@ -1111,7 +1113,7 @@ function SessionViewerInner({
       window.clearTimeout(timer),
     );
     copyResetTimersRef.current = {};
-  }, [sessionKey, useInnerScrollContainer]);
+  }, [sessionKey]);
 
   const userMessageSummaries = useMemo(
     () =>
@@ -1266,7 +1268,7 @@ function SessionViewerInner({
 
   useEffect(() => {
     const container = scrollRef.current;
-if (useInnerScrollContainer && !container) {
+    if (!container) {
       return;
     }
     if (!scrollEndRef.current) {
@@ -1281,11 +1283,11 @@ if (useInnerScrollContainer && !container) {
     if (shouldStickToBottomRef.current) {
       stickSessionToBottom("auto");
     }
-  }, [sessionKey, timeline, isStreaming, streamVersion, slashCommandResult, useInnerScrollContainer]);
+  }, [sessionKey, timeline, isStreaming, streamVersion, slashCommandResult]);
 
   useEffect(() => {
     const container = scrollRef.current;
-    if (!useInnerScrollContainer || !container || typeof window === "undefined") {
+    if (!container || typeof window === "undefined") {
       return;
     }
     const queueStickToBottom = () => {
@@ -1315,11 +1317,11 @@ if (useInnerScrollContainer && !container) {
         viewportStickFrameRef.current = null;
       }
     };
-  }, [sessionKey, useInnerScrollContainer]);
+  }, [sessionKey]);
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (!useInnerScrollContainer || !el) {
+    if (!el) {
       shouldStickToBottomRef.current = true;
       setShowJumpToLatest(false);
       return;
@@ -1350,7 +1352,7 @@ if (useInnerScrollContainer && !container) {
     return () => {
       el.removeEventListener("scroll", updateStickiness);
     };
-  }, [refreshCurrentUserMessageIndex, sessionKey, useInnerScrollContainer]);
+  }, [refreshCurrentUserMessageIndex, sessionKey]);
 
   useEffect(() => {
     if (!targetSeq) {
@@ -1439,6 +1441,15 @@ if (useInnerScrollContainer && !container) {
       return { path, name, head, repo_path: repoPath, repo_name: repoName, repo_kind: repoKind, root_id: rootID };
     })
     .filter((f) => f.path);
+  const gitStatsRefreshKey = Object.entries(gitFileStatsByPath)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([path, stats]) => `${path}:${stats.status}:${stats.additions}:${stats.deletions}`)
+    .join("|");
+  const relatedFileStatsByKey = useRelatedFileStats(
+    rootId,
+    relatedFiles,
+    gitStatsRefreshKey,
+  );
   const activeAskUserCallId = (() => {
     if (!isAwaiting) {
       return "";
@@ -1498,7 +1509,7 @@ if (useInnerScrollContainer && !container) {
     );
   }
 
-  const displayFiles = showAllFiles ? relatedFiles : relatedFiles.slice(0, 10);
+  const displayFiles = relatedFiles;
   const displayFileGroups = (() => {
     const currentRootPath = String(rootPath || "").replace(/[\\/]+$/, "");
     const repoGroups = displayFiles.reduce<
@@ -1558,7 +1569,6 @@ if (useInnerScrollContainer && !container) {
       })),
     );
   })();
-  const hasMoreFiles = relatedFiles.length > 10;
   const displayName =
     session.name ||
     session.purpose ||
@@ -2409,7 +2419,7 @@ if (useInnerScrollContainer && !container) {
 
       {/* 滚动容器 */}
       <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: "relative" }}>
-        <div ref={scrollRef} style={{ flex: 1, minHeight: 0, minWidth: 0, height: "100%", overflowY: useInnerScrollContainer ? "auto" : "visible", overflowX: "hidden", position: "relative", WebkitOverflowScrolling: "touch" }}>
+        <div ref={scrollRef} style={{ flex: 1, minHeight: 0, minWidth: 0, height: "100%", overflowY: "auto", overflowX: "hidden", position: "relative", WebkitOverflowScrolling: "touch" }}>
           <div style={{
             width: "100%",
             minWidth: 0,
@@ -2527,25 +2537,6 @@ if (useInnerScrollContainer && !container) {
                       gap: "10px",
                     }}
                   >
-                    {hasMoreFiles ? (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setShowAllFiles(!showAllFiles);
-                        }}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          padding: 0,
-                          cursor: "pointer",
-                          color: "var(--text-secondary)",
-                          fontSize: "11px",
-                        }}
-                      >
-                        {showAllFiles ? t("session.less") : t("session.more")}
-                      </button>
-                    ) : null}
                     <button
                       type="button"
                       onClick={(event) => {
@@ -2648,7 +2639,11 @@ if (useInnerScrollContainer && !container) {
                                   : group.repoName || t("session.currentProject")}
                             </div>
                           ) : null}
-                          {group.files.map((file) => (
+                          {group.files.map((file) => {
+                            const stats =
+                              relatedFileStatsByKey[relatedFileStatKey(file)] ||
+                              gitFileStatsByPath[file.path];
+                            return (
                           <div
                             key={`${file.head || "legacy"}:${file.path}`}
                             style={{
@@ -2711,7 +2706,7 @@ if (useInnerScrollContainer && !container) {
                               >
                                 {file.name}
                               </div>
-                              {gitFileStatsByPath[file.path] ? (
+                              {stats ? (
                                 <div
                                   style={{
                                     display: "inline-flex",
@@ -2728,7 +2723,7 @@ if (useInnerScrollContainer && !container) {
                                       fontVariantNumeric: "tabular-nums",
                                     }}
                                   >
-                                    +{gitFileStatsByPath[file.path].additions}
+                                    +{stats.additions}
                                   </span>
                                   <span
                                     style={{
@@ -2736,7 +2731,7 @@ if (useInnerScrollContainer && !container) {
                                       fontVariantNumeric: "tabular-nums",
                                     }}
                                   >
-                                    -{gitFileStatsByPath[file.path].deletions}
+                                    -{stats.deletions}
                                   </span>
                                 </div>
                               ) : null}
@@ -2768,7 +2763,8 @@ if (useInnerScrollContainer && !container) {
                               x
                             </button>
                           </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       );
                     })}
@@ -2780,7 +2776,7 @@ if (useInnerScrollContainer && !container) {
           </div>
           </div>
         </div>
-        {interactionMode !== "drawer" && (userMessageSummaries.length > 0 || showJumpToLatest) ? (
+        {userMessageSummaries.length > 0 || showJumpToLatest ? (
           <div
             style={{
               position: "absolute",
