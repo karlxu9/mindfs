@@ -257,11 +257,10 @@ func (s *probeSessionStore) saveLocked() error {
 // Start 启动定期探测
 func (p *Prober) Start(ctx context.Context) {
 	// 首次全量探测放到后台，避免阻塞服务启动和请求处理。
-	// Windows 下深度探测会启动外部 Agent CLI；部分 SDK/CLI 无法由 MindFS
-	// 注入 CREATE_NO_WINDOW，后台启动时会出现空白控制台窗口。
-	if shouldRunBackgroundRuntimeProbe(runtime.GOOS) {
-		go p.safeProbeAll(ctx)
-	}
+	// Windows 下深度探测会启动外部 Agent CLI；只有 ACP 协议能注入 CREATE_NO_WINDOW，
+	// claude-sdk / codex-sdk 由第三方 SDK 内部 spawn，后台启动会出现空白控制台窗口，
+	// 因此按协议过滤后再探测（见 filterBackgroundProbeDefs）。
+	go p.safeProbeAll(ctx)
 
 	// 启动定期探测：只重试未安装命令。运行时失败不做主动恢复探测，
 	// 避免周期性打开 agent probe session。
@@ -315,16 +314,40 @@ func (p *Prober) UpdateConfig(ctx context.Context, cfg *Config) {
 		}
 	}
 	p.mu.Unlock()
-	if len(installed) > 0 && shouldRunBackgroundRuntimeProbe(runtime.GOOS) {
-		go p.probeInstalledAgents(ctx, installed)
+	background := filterBackgroundProbeDefs(runtime.GOOS, installed)
+	if len(background) > 0 {
+		go p.probeInstalledAgents(ctx, background)
 	}
 }
 
-func shouldRunBackgroundRuntimeProbe(goos string) bool {
-	return goos != "windows"
+// shouldRunBackgroundRuntimeProbe 报告某个 agent 能否在后台自动探测。
+// 非 Windows 平台所有协议都安全；Windows 下只有 ACP 协议安全——ACP 的进程
+// 由 MindFS 直接 spawn（acp/process_windows.go:18 注入 CREATE_NO_WINDOW +
+// HideWindow），而 claude-sdk / codex-sdk 由第三方 SDK 内部 spawn，MindFS
+// 拿不到 *exec.Cmd，无法隐藏窗口，后台探测会弹出空白控制台窗口。
+func shouldRunBackgroundRuntimeProbe(goos string, protocol Protocol) bool {
+	if goos != "windows" {
+		return true
+	}
+	return protocol == ProtocolACP
 }
 
-// ProbeAll 探测所有配置的 Agent
+// filterBackgroundProbeDefs 返回能在后台自动探测的 agent 子集。非 Windows 平台原样保留；
+// Windows 平台只保留 ACP 协议。protocol 为空时按 agent 名回退默认协议。
+func filterBackgroundProbeDefs(goos string, defs []Definition) []Definition {
+	if goos != "windows" {
+		return defs
+	}
+	out := make([]Definition, 0, len(defs))
+	for _, def := range defs {
+		if shouldRunBackgroundRuntimeProbe(goos, agentDefinitionProtocol(def.Name, def)) {
+			out = append(out, def)
+		}
+	}
+	return out
+}
+
+// ProbeAll 探测所有配置的 Agent（手动路径，不过滤协议）。
 func (p *Prober) ProbeAll(ctx context.Context) {
 	defs := p.configuredDefinitions()
 	if len(defs) == 0 {
@@ -339,7 +362,8 @@ func (p *Prober) safeProbeAll(ctx context.Context) {
 			log.Printf("[agent/probe] probe_all.panic recovered=%v", r)
 		}
 	}()
-	p.ProbeAll(ctx)
+	defs := filterBackgroundProbeDefs(runtime.GOOS, p.configuredDefinitions())
+	p.probeConfiguredAgents(ctx, defs)
 }
 
 // ProbeOne probes a single configured agent with recovery-style timeout control.
