@@ -46,30 +46,30 @@
 
 ## 2. 逐项实施方案
 
-### 2.1　#1 删除的项目重启复活【P0 · Bug】
+### 2.1　#1 删除的项目重启复活【P0 · Bug】　✅ 已实现（2026-08-21）
 
-**根因（已定位）**：`server/app/server.go:278` 的 `autoAddExternalProjectRoots` 在启动时（调用点 `server.go:85`，另有 `:343`）扫描 Agent CLI 历史会话（`server/internal/agent/discovery.go:13` `DiscoverExternalProjectPaths`），把发现的项目路径**自动重新注册**。
+**根因**：项目发现（`server/internal/agent/discovery.go` `DiscoverExternalProjectPaths`）读的是各 Agent CLI 自己的历史记录，而历史**永远不会忘记一个目录**。`Registry.Remove` 只是从 `dirs` 里删掉，没有任何地方记下「用户主动删过这个路径」，所以下一轮发现（启动时 + 每分钟一次）就把它加回来。
 
-`Registry.Remove`（`server/internal/fs/registry.go:171`）能正确删除并落盘，但**代码里没有任何地方记录「用户主动删除过这个路径」**。唯一的跳过条件是 `server.go:298` `hasMindFSMetadataDir`——只跳过带 `.mindfs/` 目录的路径。所以「被自动发现、但你从未真正打开过（因此没生成 `.mindfs/`）」的项目，删一次、下次启动复活一次。
+唯一的旧防线是 `hasMindFSMetadataDir`——跳过目录下有 `.mindfs/` 的路径。**这道防线在本机是失效的**：用户 `preferences.json` 里 `new_project_meta_location: "home"`，元数据落在 `~/.mindfs`，项目目录下根本没有 `.mindfs/`，于是每个删掉的项目一分钟后必然复活。这也解释了为什么有人复现不了——它只在 meta 放 home 时暴露。
 
-**改动**：
+**实现**：
 
-1. `server/internal/fs/registry.go`
-   - 持久化结构（`Load()` 的 `stored` 匿名 struct，第 50-53 行）现为 `{dirs, order}`，增加第三个字段 `removed []string`。
-   - `Load()`（:40）读入，`saveLocked()`（:90）写出。
-   - `Remove()`（:171）成功后把该 root 的**规范化路径**写入 tombstone。
-   - ⚠️ **必须按路径而非按 name 记录**：`Remove` 内部以 `filepath.Base(root)` 作 map key，但 `autoAddExternalProjectRoots` 是用 `agent.NormalizeComparablePath(root.RootPath)` 比对的。tombstone 存规范化路径才能对上，否则拦不住。
-   - 新增 `IsRemoved(path string) bool` 与 `ClearRemoved(path string) error`（用户手动重新添加时要能解除拉黑）。
-2. `server/app/server.go:290` 的循环内，紧跟现有 `hasMindFSMetadataDir` / `IsTemporaryWorkDir` 判断之后，增加 `registry.IsRemoved(normalized)` 跳过。
-3. `server/internal/api/appcontext.go:578`（`s.Dirs.Upsert(path)`，即用户手动添加路径）成功后调 `ClearRemoved`。
+1. `server/internal/fs/registry.go` —— 墓碑（tombstone）
+   - 持久化结构从 `{dirs, order}` 扩为 `{dirs, order, removed}`，`removed` 是 `[]RemovedRoot{root_path, removed_at}`，按 `root_path` 排序落盘（否则 map 遍历顺序会让每次保存都重写文件）。
+   - key 用 `comparableRegistryKey`（Clean → EvalSymlinks → Abs → Clean，Windows 再小写），**按路径而非 name**。EvalSymlinks 是必需的：发现路径本身被解析过，不解析就会「按一个名字拉黑、按另一个名字重新发现」。
+   - `Remove()` 成功后写墓碑；`Upsert()`（用户显式添加）清墓碑；`Load()` 里 dirs 中已存在的 root 会**压制**自己的墓碑（同时出现在两处只可能是用户手动加回来了，managed 是更新的事实）。
+   - 新增 `UpsertDiscovered(root, metaLocation)`：发现路径专用，带墓碑判断，返回 `added bool`。**策略放在 registry 里，调用方无法忘记加这道判断**——这是它和 `Upsert` 分开的唯一理由。
+   - 另有 `RemovedRoots()` / `IsRemoved()` / `ForgetRemoved()`（计划里叫 `ClearRemoved`）。
+2. 新增包 `server/internal/projectscan` —— 把 `autoAddExternalProjectRoots` / `hasMindFSMetadataDir` / 定时循环整体搬出 `server/app/server.go`（连同它的测试搬到 `projectscan_test.go`）。**理由**：HTTP 层要能按需触发扫描，而 `server/app` 反过来 import 了 api 包，直接调用会成 import 环。
+   - 墓碑判断放在 `EnsureMetaDir` **之前**——否则每一轮都会往用户已经删掉的项目里重新写一个 `.mindfs`（有测试守着这一点）。
+   - `Result{Added, SkippedRemoved}`：跳过数要报出来，否则「扫描了但什么都没发生」看起来像坏了。
+3. 手动扫描 + 关掉自动扫描
+   - `POST /api/dirs/scan` → `usecase.ScanManagedDirs` → `AppContext.ScanProjectRoots`，返回 `{added, skipped_removed, dirs}`，并对每个新增 root 广播 `root changed` + `Scheduled.ReloadRoot`。
+   - usecase 侧用**可选接口** `rootScanner` 做类型断言（照 `rootMetaLocationUpserter` 的既有写法），避免给 `Registry` 接口加方法后被迫改动 4 个测试 fake。
+   - 环境变量 `MINDFS_PROJECT_AUTO_SCAN=0|false|off|no` 关掉每分钟的自动扫描，**不是**计划里的 `-no-auto-scan` 启动参数：有两个入口点（`cli/cmd/mindfs.go`、`server/cmd/mindfs-server/main.go`）各带一套 flag 和一个 `startupConfig` JSON，穿一个 flag 的成本远高于读一个环境变量；也不用 preferences，因为循环启动时 HTTP 层还没起来。
+   - 前端：文件树「⋯」菜单里「添加项目」下方加「扫描项目」，结果用 info toast 报「新增 N 个 / 未发现新项目」，有跳过时补一句「已跳过 N 个此前删除的项目，可用『添加项目』重新加入」。
 
-**「手动扫描」（用户明确要求）**：
-
-4. 新增启动参数 `-no-auto-scan`，为 true 时 `server.go:85` 不调用 `autoAddExternalProjectRoots`。
-5. 新增 `POST /api/dirs/scan` 端点，手动触发一次扫描并返回新发现的项目列表。
-6. 前端在文件树菜单加「扫描项目」按钮。
-
-**测试**：`server/app/server_test.go:112` 已有 `autoAddExternalProjectRoots` 的测试，在旁边加「删除后重新扫描不应复活」用例。
+**测试**：`registry_test.go` 6 例（跳过已删除 / 重启后仍生效 / 路径写法等价匹配 / 显式添加清墓碑 / ForgetRemoved / Load 压制 managed root 的墓碑），`projectscan_test.go` 4 例（正常新增 / 跳过已删除且不留 `.mindfs` / 环境变量开关 / 原有 worktree 用例），`project_scan_test.go` 3 例（usecase 输出与错误传播）。墓碑持久化那条做过变异验证：去掉 `removed` 的落盘，精确挂在「重启后仍生效」这一条上。
 
 ---
 
@@ -251,7 +251,7 @@ Windows 上本地 CLI token 文件（`server/app/local_cli_token.go`）与 relay
 ### 阶段 1 —— 当天见效（低风险）
 
 4. **#4 项目目录显示**（§2.2）——纯展示，用来验证链路。
-5. **#1 项目删除不复活**（§2.1）——P0 bug，含 tombstone + 手动扫描。
+5. **#1 项目删除不复活**（§2.1）——P0 bug，含 tombstone + 手动扫描。✅ 已完成（2026-08-21）
 6. **输入补全手感**（§2.6）——常量收敛 + 降防抖 + 前缀缓存。
 
 ### 阶段 2 —— 会话管理（中等）

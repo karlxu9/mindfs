@@ -704,6 +704,43 @@ func (s *Service) ListManagedDirs(_ context.Context) (ListManagedDirsOutput, err
 	return ListManagedDirsOutput{Dirs: s.Registry.ListRoots()}, nil
 }
 
+// rootScanner is satisfied by the real registry only. It is an optional
+// interface rather than a Registry method so the test fakes do not all have to
+// grow a scan they never exercise, matching rootMetaLocationUpserter below.
+type rootScanner interface {
+	ScanProjectRoots() ([]fs.RootInfo, int, error)
+}
+
+type ScanManagedDirsOutput struct {
+	Added []fs.RootInfo
+	// SkippedRemoved counts projects that were found but stayed out because the
+	// user had deleted them, so the UI can say why a project is still missing
+	// instead of looking broken.
+	SkippedRemoved int
+	Dirs           []fs.RootInfo
+}
+
+// ScanManagedDirs looks for projects in the agents' own histories and adds the
+// ones that are neither managed nor deleted.
+func (s *Service) ScanManagedDirs(_ context.Context) (ScanManagedDirsOutput, error) {
+	if err := s.ensureRegistry(); err != nil {
+		return ScanManagedDirsOutput{}, err
+	}
+	scanner, ok := s.Registry.(rootScanner)
+	if !ok {
+		return ScanManagedDirsOutput{}, errors.New("project scan not supported")
+	}
+	added, skipped, err := scanner.ScanProjectRoots()
+	if err != nil {
+		return ScanManagedDirsOutput{}, err
+	}
+	return ScanManagedDirsOutput{
+		Added:          added,
+		SkippedRemoved: skipped,
+		Dirs:           s.Registry.ListRoots(),
+	}, nil
+}
+
 type AddManagedDirInput struct {
 	Path   string
 	Create bool

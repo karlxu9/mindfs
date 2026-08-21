@@ -24,6 +24,7 @@ import (
 	"mindfs/server/internal/notify"
 	"mindfs/server/internal/notifyscript"
 	"mindfs/server/internal/preferences"
+	"mindfs/server/internal/projectscan"
 	"mindfs/server/internal/relay"
 	"mindfs/server/internal/scheduled"
 	"mindfs/server/internal/session"
@@ -585,6 +586,27 @@ func (s *AppContext) UpsertRootWithMetaLocation(path, metaLocation string) (fs.R
 		}
 	}
 	return dir, err
+}
+
+// ScanProjectRoots runs the project discovery pass on demand and returns the
+// roots it added plus how many it skipped because the user had deleted them.
+//
+// It exists so the user is not stuck waiting for the periodic pass -- and so
+// the pass can be turned off entirely without losing the ability to pick up new
+// projects.
+func (s *AppContext) ScanProjectRoots() ([]fs.RootInfo, int, error) {
+	if s.Dirs == nil {
+		return nil, 0, errors.New("registry not configured")
+	}
+	result := projectscan.Run(s.Dirs, s.Prefs)
+	if s.Scheduled != nil {
+		for _, dir := range result.Added {
+			if err := s.Scheduled.ReloadRoot(dir.ID); err != nil {
+				log.Printf("[scheduled-agent] reload.error root=%s err=%v", dir.ID, err)
+			}
+		}
+	}
+	return result.Added, result.SkippedRemoved, nil
 }
 
 func (s *AppContext) RemoveRoot(path string) (fs.RootInfo, error) {

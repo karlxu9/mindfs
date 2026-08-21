@@ -8207,6 +8207,34 @@ export function App({ onGoHome }: AppProps) {
     worktreeBranchMode,
   ]);
 
+  // Discovery normally runs on a timer, and can be turned off entirely, so the
+  // menu needs a way to ask for a pass now. Projects the user deleted stay
+  // deleted -- the skipped count says so rather than leaving the scan looking
+  // like it did nothing.
+  const handleScanProjects = useCallback(async () => {
+    try {
+      const payload = await apiProtectedJSON<{
+        added?: ManagedRootPayload[];
+        skipped_removed?: number;
+      }>(appPath("/api/dirs/scan"), { method: "POST" });
+      const added = Array.isArray(payload?.added) ? payload.added.length : 0;
+      const skipped = Number(payload?.skipped_removed) || 0;
+      if (added > 0) {
+        await refreshManagedRoots();
+      }
+      const summary = added > 0
+        ? t("root.scanAdded", { count: added })
+        : t("root.scanNoNewProjects");
+      const detail = skipped > 0 ? ` ${t("root.scanSkippedRemoved", { count: skipped })}` : "";
+      reportError("root.scan_completed", `${summary}${detail}`);
+    } catch (err) {
+      reportError(
+        "root.scan_failed",
+        String((err as Error)?.message || t("root.scanFailed")),
+      );
+    }
+  }, [refreshManagedRoots, t]);
+
   const handleRenameCurrentRoot = useCallback(
     async (nextName: string) => {
       const rootID = currentRootIdRef.current;
@@ -14328,6 +14356,7 @@ export function App({ onGoHome }: AppProps) {
             onOpenProjectAdd={handleOpenProjectAdd}
             onStartOnboarding={isMobile ? undefined : () => setOnboardingOpen(true)}
             onCreateRootStart={handleCreateRootStart}
+            onScanProjects={handleScanProjects}
             onCreateRootNameChange={setCreatingRootName}
             onCreateRootSubmit={() => {
               void handleCreateRootSubmit();

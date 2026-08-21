@@ -153,6 +153,7 @@ type FileTreeProps = {
   creatingRootExtraContent?: React.ReactNode;
   creatingRootSubmitOnBlur?: boolean;
   onCreateRootStart?: () => void;
+  onScanProjects?: () => void | Promise<void>;
   onOpenProjectAdd?: () => void;
   onStartOnboarding?: () => void;
   onCreateRootNameChange?: (name: string) => void;
@@ -1343,6 +1344,7 @@ export function FileTree({
   creatingRootExtraContent = null,
   creatingRootSubmitOnBlur = true,
   onCreateRootStart,
+  onScanProjects,
   onOpenProjectAdd,
   onStartOnboarding,
   onCreateRootNameChange,
@@ -2886,6 +2888,22 @@ export function FileTree({
                   </svg>
                   <span>{t("fileTree.addProject")}</span>
                 </button>
+                {onScanProjects ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void onScanProjects();
+                      setIsMenuOpen(false);
+                    }}
+                    style={fileTreeMenuButtonStyle}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m20 20-3.6-3.6" />
+                    </svg>
+                    <span>{t("fileTree.scanProjects")}</span>
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => openAgentConfigFlow("backup")}

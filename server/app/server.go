@@ -18,10 +18,10 @@ import (
 	"mindfs/server/internal/e2ee"
 	"mindfs/server/internal/fs"
 	"mindfs/server/internal/githubimport"
-	"mindfs/server/internal/gitview"
 	"mindfs/server/internal/kanban"
 	"mindfs/server/internal/notifyscript"
 	"mindfs/server/internal/preferences"
+	"mindfs/server/internal/projectscan"
 	"mindfs/server/internal/relay"
 	"mindfs/server/internal/scheduled"
 	"mindfs/server/internal/tlsutil"
@@ -30,7 +30,6 @@ import (
 )
 
 const staticDirEnvKey = "MINDFS_STATIC_DIR"
-const externalProjectDiscoveryInterval = time.Minute
 const hostedAgentsRefreshInterval = 10 * time.Minute
 
 type StartOptions struct {
@@ -86,8 +85,8 @@ func Start(ctx context.Context, addr string, opts StartOptions) error {
 	if prefsErr != nil {
 		log.Printf("[preferences] init.error err=%v", prefsErr)
 	}
-	autoAddExternalProjectRoots(registry, prefs)
-	startExternalProjectDiscoveryLoop(ctx, registry, prefs)
+	projectscan.Run(registry, prefs)
+	projectscan.StartLoop(ctx, registry, prefs)
 
 	agentConfig, err := agent.LoadConfigWithExtra(opts.AgentConfigPath)
 	if err != nil {
@@ -280,88 +279,6 @@ func fetchHostedAgentConfig(ctx context.Context, endpoint string, localConfig ag
 		return agent.Config{}, err
 	}
 	return agent.MergeHostedConfig(hosted, localConfig), nil
-}
-
-func autoAddExternalProjectRoots(registry *fs.Registry, prefs *preferences.Store) {
-	if registry == nil {
-		return
-	}
-	existing := make(map[string]struct{})
-	for _, root := range registry.List() {
-		normalized := agent.NormalizeComparablePath(root.RootPath)
-		if normalized != "" {
-			existing[normalized] = struct{}{}
-		}
-	}
-	added := 0
-	for _, projectPath := range agent.DiscoverExternalProjectPaths() {
-		normalized := agent.NormalizeComparablePath(projectPath)
-		if normalized == "" {
-			continue
-		}
-		if _, ok := existing[normalized]; ok {
-			continue
-		}
-		if hasMindFSMetadataDir(projectPath) {
-			continue
-		}
-		if agent.IsTemporaryWorkDir(projectPath) {
-			continue
-		}
-		gitCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		isWorktree, err := gitview.IsInsideWorktree(gitCtx, projectPath)
-		cancel()
-		if err == nil && isWorktree {
-			continue
-		}
-		location := fs.MetaLocationProject
-		if prefs != nil {
-			location = prefs.NewProjectMetaLocation()
-		}
-		rootID := filepath.Base(filepath.Clean(projectPath))
-		pending := fs.NewRootInfo(rootID, rootID, projectPath)
-		pending.MetaLocation = location
-		if _, err := pending.EnsureMetaDir(); err != nil {
-			log.Printf("[startup/projects] auto add metadata skipped path=%s err=%v", projectPath, err)
-			continue
-		}
-		if _, err := registry.UpsertWithMetaLocation(projectPath, location); err != nil {
-			log.Printf("[startup/projects] auto add skipped path=%s err=%v", projectPath, err)
-			continue
-		}
-		existing[normalized] = struct{}{}
-		added++
-	}
-	if added > 0 {
-		log.Printf("[startup/projects] auto added external project roots count=%d", added)
-	}
-}
-
-func hasMindFSMetadataDir(projectPath string) bool {
-	projectPath = strings.TrimSpace(projectPath)
-	if projectPath == "" {
-		return false
-	}
-	info, err := os.Stat(filepath.Join(projectPath, ".mindfs"))
-	return err == nil && info.IsDir()
-}
-
-func startExternalProjectDiscoveryLoop(ctx context.Context, registry *fs.Registry, prefs *preferences.Store) {
-	if registry == nil {
-		return
-	}
-	ticker := time.NewTicker(externalProjectDiscoveryInterval)
-	go func() {
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				autoAddExternalProjectRoots(registry, prefs)
-			}
-		}
-	}()
 }
 
 func resolveStaticDir() string {

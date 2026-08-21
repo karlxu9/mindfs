@@ -353,6 +353,7 @@ func (h *HTTPHandler) Routes() http.Handler {
 	r.Post("/api/dirs", h.protectedEndpoint(h.handleAddDir))
 	r.Post("/api/dirs/{id}/rename", h.protectedEndpoint(h.handleRenameDir))
 	r.Delete("/api/dirs", h.protectedEndpoint(h.handleRemoveDir))
+	r.Post("/api/dirs/scan", h.protectedEndpoint(h.handleScanDirs))
 	r.Get("/api/local_dirs", h.protectedEndpoint(h.handleLocalDirs))
 	r.Get("/api/relay/status", h.handleRelayStatus)
 	r.Post("/api/relay/bind/start", h.protectedEndpoint(h.handleRelayBindStart))
@@ -2336,6 +2337,34 @@ func (h *HTTPHandler) handleDirs(w http.ResponseWriter, _ *http.Request) {
 		resp = append(resp, managedDirResponse(dir))
 	}
 	respondJSON(w, http.StatusOK, resp)
+}
+
+// handleScanDirs asks for a project discovery pass now, rather than waiting for
+// the periodic one -- and is the only way to pick up new projects when the
+// periodic pass is turned off.
+func (h *HTTPHandler) handleScanDirs(w http.ResponseWriter, r *http.Request) {
+	uc := h.service()
+	out, err := uc.ScanManagedDirs(r.Context())
+	if err != nil {
+		respondError(w, http.StatusServiceUnavailable, err)
+		return
+	}
+	added := make([]map[string]any, 0, len(out.Added))
+	for _, dir := range out.Added {
+		added = append(added, managedDirResponse(dir))
+		if h.AppContext != nil {
+			h.broadcastRootChanged("added", dir.ID)
+		}
+	}
+	dirs := make([]map[string]any, 0, len(out.Dirs))
+	for _, dir := range out.Dirs {
+		dirs = append(dirs, managedDirResponse(dir))
+	}
+	respondJSON(w, http.StatusOK, map[string]any{
+		"added":           added,
+		"skipped_removed": out.SkippedRemoved,
+		"dirs":            dirs,
+	})
 }
 
 func (h *HTTPHandler) handleAddDir(w http.ResponseWriter, r *http.Request) {

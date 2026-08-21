@@ -16,6 +16,8 @@ export type ErrorCode =
   | "app.init_failed"
   // Root/project errors
   | "root.create_failed"
+  | "root.scan_failed"
+  | "root.scan_completed"
   | "root.delete_failed"
   | "root.rename_failed"
   | "git.checkout_failed"
@@ -179,6 +181,18 @@ class ErrorService {
         messageKey: "error.root.createFailed",
         severity: "error",
         recoverable: true,
+      },
+      "root.scan_failed": {
+        messageKey: "error.root.scanFailed",
+        severity: "error",
+        recoverable: true,
+      },
+      // Reported with an explicit message carrying the counts; the toast is the
+      // only feedback a scan that found nothing can give.
+      "root.scan_completed": {
+        messageKey: "error.root.scanCompleted",
+        severity: "info",
+        recoverable: false,
       },
       "root.delete_failed": {
         messageKey: "error.root.deleteFailed",
