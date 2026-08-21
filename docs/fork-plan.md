@@ -164,23 +164,22 @@ replace github.com/roasbeef/claude-agent-sdk-go => github.com/yandc/claude-agent
 
 ---
 
-### 2.6　输入与补全手感【P1 · 便宜】
+### 2.6　输入与补全手感【P1 · 便宜】　✅ 已实现（2026-08-21）
 
-**已定位到三个具体成因**：
+**三个成因，全部处理**：
 
-1. **512ms 防抖**——`@` 文件补全 / `/` 斜杠命令 / `#` 提示词都要等半秒才弹列表，手感发黏。
-2. **常量重复定义两处**：`web/src/components/ActionBar.tsx:171` 与 `web/src/App.tsx:662` 各写了一遍 `const CANDIDATE_FETCH_DEBOUNCE_MS = 512;`——改一处会漏另一处。
-3. **无客户端缓存**——`web/src/services/candidates.ts` 每次（防抖后的）按键都发一次 `/api/candidates` HTTP 请求。
+1. **512ms 防抖 → 130ms**——常量收敛到 `web/src/services/candidateCache.ts` 单一来源（`CANDIDATE_FETCH_DEBOUNCE_MS`），`ActionBar.tsx` 与 `App.tsx` 两处本地副本删除，改为 import。
+2. **客户端缓存**——新模块 `candidateCache.ts`（无 import 的纯模块，方便沿用 `projectPath.ts` 的 vm 沙箱测试方式）：
+   - **精确命中**：同 `(rootId, type, agent, query)`、15 秒内 → 直接用缓存，**不发请求**。退格重打、重开 `@` 面板即时出结果。
+   - **前缀派生**：缓存里有当前 query 的前缀（取最长的）→ 立即本地过滤显示，但**必须照发请求校正**。这不是可选的：服务端把结果截断到 10 条（`maxCandidateItems`），前缀的 top-10 里可能根本不含长 query 的真实匹配，本地过滤只能当乐观预览。原计划里"取过 `fo` 就不再请求 `foo`"的写法是**不可靠的**，已按截断语义修正。
+   - 过滤复刻服务端匹配（大小写不敏感 substring）；file/skill 复刻服务端排序（前缀优先→短名→字典序），command/prompt 保持缓存顺序（服务端按最近使用排序，客户端排序会打乱）。
+   - 派生过滤结果为空时**不显示**——真实匹配可能在被截断的部分里，自信地显示"无结果"比多等 130ms 更糟。
+   - LRU 上限 80 条；`#` 提示词增删（`services/prompts.ts`）主动失效 prompt 桶，否则会在 15 秒窗口内读到旧列表。
+3. **请求量**：降防抖本会放大请求 3-4 倍，但精确命中直接吃掉重复请求，派生预览不产生额外请求（校正请求本来就要发）。
 
-**已经做对的部分**：`AbortController` 用得很规范（`ActionBar.tsx:709-711` 每次新请求前 abort 旧的），不需要动。
+**没动的部分**：`AbortController` 逻辑原样保留；**键盘/IME 处理一行未碰**（讯飞/搜狗回车提交的历史雷区在 `IME_ENTER_GUARD_MS` 一带，本次只改了取数 effect）。
 
-**改动**：
-
-1. 常量收敛到 `web/src/services/candidates.ts` 单一来源，两处引用改为 import。
-2. 防抖降到 **120-150ms**。
-3. **加前缀缓存**（这才是让它「感觉即时」的关键）：已取到前缀 `fo` 的候选后，继续输入 `foo` 直接本地过滤，不发请求。缓存按 `(rootId, type, agent)` 分桶，会话切换时失效。降防抖 + 前缀缓存**同时做**，否则单纯降防抖会把请求量放大 3-4 倍。
-
-> 顺带：`fix` 提交里有 14 项与 input 相关，含讯飞/搜狗 IME 回车提交问题（`17fb6e8`）。**动 ActionBar 输入逻辑时务必用国产输入法回归测试**，这块历史上反复出问题。
+**测试**：`web/tests/candidate-cache.test.mjs`——精确命中/过期降级、前缀派生+最长前缀优先、substring 语义、空结果抑制、服务端排序复刻、command 保序、桶隔离（含带空格 rootId 不串桶、skill 按 agent 分桶）、类型化失效、LRU 淘汰。
 
 ---
 
@@ -252,7 +251,7 @@ Windows 上本地 CLI token 文件（`server/app/local_cli_token.go`）与 relay
 
 4. **#4 项目目录显示**（§2.2）——纯展示，用来验证链路。
 5. **#1 项目删除不复活**（§2.1）——P0 bug，含 tombstone + 手动扫描。✅ 已完成（2026-08-21）
-6. **输入补全手感**（§2.6）——常量收敛 + 降防抖 + 前缀缓存。
+6. **输入补全手感**（§2.6）——常量收敛 + 降防抖 + 前缀缓存。✅ 已完成（2026-08-21）
 
 ### 阶段 2 —— 会话管理（中等）
 

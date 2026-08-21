@@ -1,5 +1,12 @@
 import { appURL } from "./base";
 import { protectedJSON } from "./api";
+import { storeCandidates } from "./candidateCache";
+
+export {
+  CANDIDATE_FETCH_DEBOUNCE_MS,
+  invalidateCandidates,
+  peekCandidates,
+} from "./candidateCache";
 
 export type CandidateType = "file" | "skill" | "prompt" | "command";
 export type CandidateItemType = CandidateType | "slash_command";
@@ -29,5 +36,10 @@ export async function fetchCandidates(params: {
   const data = await protectedJSON<any[]>(appURL("/api/candidates", search), {
     signal: params.signal,
   });
-  return Array.isArray(data) ? data : [];
+  const items = Array.isArray(data) ? data : [];
+  storeCandidates(
+    { rootId: params.rootId, type: params.type, query: params.query || "", agent: params.agent },
+    items,
+  );
+  return items;
 }

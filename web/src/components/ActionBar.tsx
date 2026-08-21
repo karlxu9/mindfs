@@ -3,7 +3,12 @@ import { type SessionMode } from "./ModeSelector";
 import { ModeSelector } from "./ModeSelector";
 import { AgentSelector } from "./AgentSelector";
 import { fetchAgents, fetchShells, restartAgent, type AgentStatus, type ShellStatus } from "../services/agents";
-import { fetchCandidates, type CandidateItem } from "../services/candidates";
+import {
+  CANDIDATE_FETCH_DEBOUNCE_MS,
+  fetchCandidates,
+  peekCandidates,
+  type CandidateItem,
+} from "../services/candidates";
 import { reportError } from "../services/error";
 import { isUploadAbortError, uploadFiles, type UploadProgress } from "../services/upload";
 import {
@@ -169,7 +174,6 @@ const chatBlurPlaceholderKeys: MessageKey[] = [
 
 const MOBILE_BREAKPOINT = 768;
 const IME_ENTER_GUARD_MS = 120;
-const CANDIDATE_FETCH_DEBOUNCE_MS = 512;
 
 function getAgentDefaults(agent?: AgentStatus | null) {
   return {
@@ -713,41 +717,61 @@ export function ActionBar({
       setActiveCandidateIndex(0);
       return;
     }
+    const candidateType = activeToken.type === "file"
+      ? "file" as const
+      : activeToken.type === "prompt"
+        ? "prompt" as const
+        : activeToken.type === "command" || mode === "command"
+          ? "command" as const
+          : "skill" as const;
+    const candidateAgent = activeToken.type === "slash" && mode !== "command" ? agent : undefined;
+    const applyItems = (items: CandidateItem[]) => {
+      const supportsPlanCommand =
+        activeToken.type !== "slash" ||
+        mode === "command" ||
+        ["codex", "claude"].includes(agent.trim().toLowerCase());
+      const filteredItems = supportsPlanCommand
+        ? items
+        : items.filter(
+            (item) =>
+              item.type !== "slash_command" ||
+              item.name.trim().toLowerCase() !== "plan",
+          );
+      const nextItems = activeToken.type === "command"
+        ? filteredItems.filter((item) => item.name.trim() !== activeToken.query.trim())
+        : filteredItems;
+      setCandidates(nextItems);
+      setActiveCandidateIndex(activeToken.type === "command" ? -1 : 0);
+    };
+    // Show whatever the cache can offer before the debounce even starts. An
+    // exact fresh hit is the server's own answer, so no request is needed; a
+    // preview derived from a shorter query may be missing items the server
+    // truncated, so the fetch below still runs to reconcile.
+    const peeked = peekCandidates<CandidateItem>({
+      rootId: currentRootId,
+      type: candidateType,
+      query: activeToken.query,
+      agent: candidateAgent,
+    });
+    if (peeked) {
+      applyItems(peeked.items);
+    }
+    if (peeked?.exact) {
+      candidateAbortRef.current?.abort();
+      return;
+    }
     const controller = new AbortController();
     candidateAbortRef.current?.abort();
     candidateAbortRef.current = controller;
     const timer = window.setTimeout(() => {
       fetchCandidates({
         rootId: currentRootId,
-        type: activeToken.type === "file"
-          ? "file"
-          : activeToken.type === "prompt"
-            ? "prompt"
-            : activeToken.type === "command" || mode === "command"
-              ? "command"
-              : "skill",
+        type: candidateType,
         query: activeToken.query,
-        agent: activeToken.type === "slash" && mode !== "command" ? agent : undefined,
+        agent: candidateAgent,
         signal: controller.signal,
       })
-        .then((items) => {
-          const supportsPlanCommand =
-            activeToken.type !== "slash" ||
-            mode === "command" ||
-            ["codex", "claude"].includes(agent.trim().toLowerCase());
-          const filteredItems = supportsPlanCommand
-            ? items
-            : items.filter(
-                (item) =>
-                  item.type !== "slash_command" ||
-                  item.name.trim().toLowerCase() !== "plan",
-              );
-          const nextItems = activeToken.type === "command"
-            ? filteredItems.filter((item) => item.name.trim() !== activeToken.query.trim())
-            : filteredItems;
-          setCandidates(nextItems);
-          setActiveCandidateIndex(activeToken.type === "command" ? -1 : 0);
-        })
+        .then(applyItems)
         .catch((err) => {
           if (controller.signal.aborted) return;
           console.error("Failed to fetch candidates:", err);

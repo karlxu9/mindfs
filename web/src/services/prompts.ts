@@ -1,5 +1,6 @@
 import { appURL } from "./base";
 import { protectedJSON } from "./api";
+import { invalidateCandidates } from "./candidateCache";
 
 export async function savePrompt(text: string): Promise<string[]> {
   const data = await protectedJSON<any>(appURL("/api/prompts"), {
@@ -9,6 +10,7 @@ export async function savePrompt(text: string): Promise<string[]> {
     },
     body: JSON.stringify({ text }),
   });
+  invalidateCandidates("prompt");
   return Array.isArray(data?.items) ? data.items : [];
 }
 
@@ -20,5 +22,6 @@ export async function deletePrompt(text: string): Promise<string[]> {
     },
     body: JSON.stringify({ text }),
   });
+  invalidateCandidates("prompt");
   return Array.isArray(data?.items) ? data.items : [];
 }

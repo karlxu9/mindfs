@@ -156,7 +156,12 @@ import {
   type ProjectAddMode,
 } from "./components/ProjectAddPopover";
 import { fetchAgents, restartAgent, type AgentStatus } from "./services/agents";
-import { fetchCandidates, type CandidateItem } from "./services/candidates";
+import {
+  CANDIDATE_FETCH_DEBOUNCE_MS,
+  fetchCandidates,
+  peekCandidates,
+  type CandidateItem,
+} from "./services/candidates";
 import {
   createTask,
   deleteTaskTemplate,
@@ -672,7 +677,6 @@ const GIT_STATUS_EXPANDED_STORAGE_KEY = "mindfs-git-status-expanded";
 const GIT_HISTORY_EXPANDED_STORAGE_KEY = "mindfs-git-history-expanded";
 const TASK_TEMPLATE_SELECTION_STORAGE_KEY = "mindfs-task-template-selection";
 const TASK_TEMPLATE_ALL_FILTER = "__all__";
-const CANDIDATE_FETCH_DEBOUNCE_MS = 512;
 const FILE_TOKEN_PATTERN = /\[(?:read file|file):\s*[^\]]+\]/i;
 
 function normalizeUpdateState(
@@ -1829,27 +1833,45 @@ export function App({ onGoHome }: AppProps) {
       setTaskInlineCandidateIndex(0);
       return;
     }
+    const selectedTemplate = taskTemplates.find((template) => template.id === taskTemplateFilter) || null;
+    const taskAgent = firstAgentStage(selectedTemplate)?.agent || "";
+    const candidateType = taskInlineActiveToken.type === "file"
+      ? "file" as const
+      : taskInlineActiveToken.type === "prompt"
+        ? "prompt" as const
+        : taskInlineActiveToken.type === "command"
+          ? "command" as const
+          : "skill" as const;
+    const candidateAgent = taskInlineActiveToken.type === "slash" ? taskAgent : undefined;
+    const applyItems = (items: CandidateItem[]) => {
+      setTaskInlineCandidates(items);
+      setTaskInlineCandidateIndex(0);
+    };
+    // Same cache dance as ActionBar: an exact fresh hit answers without a
+    // request, a prefix-derived preview shows instantly but is still
+    // reconciled by the fetch below.
+    const peeked = peekCandidates<CandidateItem>({
+      rootId: currentRootId,
+      type: candidateType,
+      query: taskInlineActiveToken.query,
+      agent: candidateAgent,
+    });
+    if (peeked) {
+      applyItems(peeked.items);
+    }
+    if (peeked?.exact) {
+      return;
+    }
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      const selectedTemplate = taskTemplates.find((template) => template.id === taskTemplateFilter) || null;
-      const agent = firstAgentStage(selectedTemplate)?.agent || "";
       fetchCandidates({
         rootId: currentRootId,
-        type: taskInlineActiveToken.type === "file"
-          ? "file"
-          : taskInlineActiveToken.type === "prompt"
-            ? "prompt"
-            : taskInlineActiveToken.type === "command"
-              ? "command"
-              : "skill",
+        type: candidateType,
         query: taskInlineActiveToken.query,
-        agent: taskInlineActiveToken.type === "slash" ? agent : undefined,
+        agent: candidateAgent,
         signal: controller.signal,
       })
-        .then((items) => {
-          setTaskInlineCandidates(items);
-          setTaskInlineCandidateIndex(0);
-        })
+        .then(applyItems)
         .catch((err) => {
           if (controller.signal.aborted) return;
           console.error("Failed to fetch task candidates:", err);
