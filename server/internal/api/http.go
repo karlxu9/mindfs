@@ -325,6 +325,7 @@ func (h *HTTPHandler) Routes() http.Handler {
 	r.Post("/api/sessions/{key}/rename", h.protectedEndpoint(h.handleSessionRename))
 	r.Delete("/api/sessions/{key}/related-files", h.protectedEndpoint(h.handleSessionRelatedFilesDelete))
 	r.Delete("/api/sessions/{key}", h.protectedEndpoint(h.handleSessionDelete))
+	r.Post("/api/sessions/batch-delete", h.protectedEndpoint(h.handleSessionsBatchDelete))
 	r.Get("/api/scheduled-agent-tasks", h.protectedEndpoint(h.handleScheduledAgentTasksList))
 	r.Post("/api/scheduled-agent-tasks", h.protectedEndpoint(h.handleScheduledAgentTaskCreate))
 	r.Put("/api/scheduled-agent-tasks/{id}", h.protectedEndpoint(h.handleScheduledAgentTaskUpdate))
@@ -1073,6 +1074,41 @@ func (h *HTTPHandler) handleSessionPin(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	respondJSON(w, http.StatusOK, h.sessionListResponse(updated))
+}
+
+// handleSessionsBatchDelete deletes many sessions in one request. A client
+// loop over DELETE /api/sessions/{key} costs a full session scan per call;
+// this endpoint resolves every cascade from a single scan and reports
+// per-key failures instead of aborting the batch.
+func (h *HTTPHandler) handleSessionsBatchDelete(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Root string   `json:"root"`
+		Keys []string `json:"keys"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, errInvalidRequest("invalid json body"))
+		return
+	}
+	out, err := h.service().DeleteSessions(r.Context(), usecase.DeleteSessionsInput{
+		RootID: req.Root,
+		Keys:   req.Keys,
+	})
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err)
+		return
+	}
+	deleted := out.Deleted
+	if deleted == nil {
+		deleted = []string{}
+	}
+	failed := out.Failed
+	if failed == nil {
+		failed = []usecase.DeleteSessionFailure{}
+	}
+	respondJSON(w, http.StatusOK, map[string]any{
+		"deleted": deleted,
+		"failed":  failed,
+	})
 }
 
 func (h *HTTPHandler) handleSessionDelete(w http.ResponseWriter, r *http.Request) {

@@ -916,48 +916,111 @@ type DeleteSessionInput struct {
 }
 
 func (s *Service) DeleteSession(ctx context.Context, in DeleteSessionInput) error {
-	if err := s.ensureRegistry(); err != nil {
-		return err
-	}
-	root, err := s.Registry.GetRoot(in.RootID)
+	out, err := s.DeleteSessions(ctx, DeleteSessionsInput{RootID: in.RootID, Keys: []string{in.Key}})
 	if err != nil {
 		return err
 	}
-	manager, err := s.Registry.GetSessionManager(in.RootID)
-	if err != nil {
-		return err
-	}
-	keys, err := deleteSessionCascadeKeys(ctx, manager, in.Key)
-	if err != nil {
-		return err
-	}
-	for _, key := range keys {
-		cancelActiveSessionTurn(in.RootID, key)
-	}
-	for _, key := range keys {
-		if err := manager.Delete(ctx, key); err != nil {
-			return err
-		}
-		if err := root.RemoveSessionFileMeta(key); err != nil {
-			return err
-		}
-		commandexec.CloseSession(in.RootID, key)
-		s.Registry.ReleaseFileWatcher(in.RootID, key)
+	if len(out.Failed) > 0 {
+		return errors.New(out.Failed[0].Error)
 	}
 	return nil
 }
 
-func deleteSessionCascadeKeys(ctx context.Context, manager *session.Manager, key string) ([]string, error) {
-	rootKey := strings.TrimSpace(key)
-	if rootKey == "" {
-		return nil, errors.New("session key required")
+type DeleteSessionsInput struct {
+	RootID string
+	Keys   []string
+}
+
+type DeleteSessionFailure struct {
+	Key   string `json:"key"`
+	Error string `json:"error"`
+}
+
+type DeleteSessionsOutput struct {
+	// Deleted holds every key that is actually gone, including cascaded
+	// children the caller never named -- the client needs those to clean its
+	// own caches without recomputing the closure.
+	Deleted []string
+	Failed  []DeleteSessionFailure
+}
+
+// DeleteSessions deletes many sessions and their sub-session trees in one
+// pass.
+//
+// It exists because deleting one session costs a full ListMetas scan to find
+// its children; a client loop over N sessions costs N scans. Here the closure
+// of every requested key is computed from a single scan, deduplicated so a
+// parent and its already-selected child do not delete the same key twice.
+//
+// Failures are reported per key rather than aborting the batch: the sessions
+// deleted before an error are gone either way, so pretending the whole batch
+// failed would just make the user re-request deletes that can no longer
+// succeed.
+func (s *Service) DeleteSessions(ctx context.Context, in DeleteSessionsInput) (DeleteSessionsOutput, error) {
+	var out DeleteSessionsOutput
+	if err := s.ensureRegistry(); err != nil {
+		return out, err
 	}
+	requested := make([]string, 0, len(in.Keys))
+	seenRequest := make(map[string]bool, len(in.Keys))
+	for _, key := range in.Keys {
+		key = strings.TrimSpace(key)
+		if key == "" || seenRequest[key] {
+			continue
+		}
+		seenRequest[key] = true
+		requested = append(requested, key)
+	}
+	if len(requested) == 0 {
+		return out, errors.New("session key required")
+	}
+	root, err := s.Registry.GetRoot(in.RootID)
+	if err != nil {
+		return out, err
+	}
+	manager, err := s.Registry.GetSessionManager(in.RootID)
+	if err != nil {
+		return out, err
+	}
+	ordered, missing, err := sessionCascadeClosure(ctx, manager, requested)
+	if err != nil {
+		return out, err
+	}
+	for _, key := range missing {
+		out.Failed = append(out.Failed, DeleteSessionFailure{Key: key, Error: "session not found"})
+	}
+	for _, key := range ordered {
+		cancelActiveSessionTurn(in.RootID, key)
+	}
+	for _, key := range ordered {
+		if err := manager.Delete(ctx, key); err != nil {
+			out.Failed = append(out.Failed, DeleteSessionFailure{Key: key, Error: err.Error()})
+			continue
+		}
+		// From here the session is gone; cleanup failures are logged rather
+		// than reported, because "failed" would invite a retry that can only
+		// 404.
+		if err := root.RemoveSessionFileMeta(key); err != nil {
+			log.Printf("[session] delete.meta.error root=%s session=%s err=%v", in.RootID, key, err)
+		}
+		commandexec.CloseSession(in.RootID, key)
+		s.Registry.ReleaseFileWatcher(in.RootID, key)
+		out.Deleted = append(out.Deleted, key)
+	}
+	return out, nil
+}
+
+// sessionCascadeClosure resolves the requested keys plus all their descendant
+// sessions from a single ListMetas scan. The returned order puts children
+// before their parents, so deletion never leaves an orphan pointing at a
+// removed parent. Requested keys that do not exist come back in missing.
+func sessionCascadeClosure(ctx context.Context, manager *session.Manager, requested []string) (ordered, missing []string, err error) {
 	items, err := manager.ListMetas(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	childrenByParent := make(map[string][]string)
-	exists := false
+	exists := make(map[string]bool)
 	for _, item := range items {
 		if item == nil {
 			continue
@@ -966,18 +1029,12 @@ func deleteSessionCascadeKeys(ctx context.Context, manager *session.Manager, key
 		if itemKey == "" {
 			continue
 		}
-		if itemKey == rootKey {
-			exists = true
-		}
+		exists[itemKey] = true
 		parentKey := strings.TrimSpace(item.ParentSessionKey)
 		if parentKey != "" {
 			childrenByParent[parentKey] = append(childrenByParent[parentKey], itemKey)
 		}
 	}
-	if !exists {
-		return nil, errors.New("session not found")
-	}
-	keys := make([]string, 0, 1)
 	seen := make(map[string]bool)
 	var visit func(string)
 	visit = func(current string) {
@@ -988,10 +1045,16 @@ func deleteSessionCascadeKeys(ctx context.Context, manager *session.Manager, key
 		for _, childKey := range childrenByParent[current] {
 			visit(childKey)
 		}
-		keys = append(keys, current)
+		ordered = append(ordered, current)
 	}
-	visit(rootKey)
-	return keys, nil
+	for _, key := range requested {
+		if !exists[key] {
+			missing = append(missing, key)
+			continue
+		}
+		visit(key)
+	}
+	return ordered, missing, nil
 }
 
 func cancelActiveSessionTurn(rootID, sessionKey string) {

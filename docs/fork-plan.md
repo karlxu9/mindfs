@@ -83,24 +83,24 @@
 
 ---
 
-### 2.3　#3 批量删除会话【P1】
+### 2.3　#3 批量删除会话【P1】　✅ 已实现（2026-08-21）
 
-**现状**：全链路都是单条。前端 `web/src/services/session.ts:1285` `deleteSession(rootId, sessionKey)`；后端 `server/internal/api/usecase/session.go:918` `DeleteSession`，路由在 `server/internal/api/http.go:1061`。
+**实现**（按计划走了真批量端点，没有前端循环）：
 
-**⚠️ 关键陷阱——不要在前端写循环**：`DeleteSession` 内部调 `deleteSessionCascadeKeys`（`session.go:950`），而该函数**每次都执行一遍 `manager.ListMetas(ctx)` 全量会话列表扫描**。前端循环删 N 条 = **N 次全量扫描**。删 50 条会明显卡顿甚至打爆服务端。
+1. 后端 `server/internal/api/usecase/session.go`：
+   - `sessionCascadeClosure(ctx, manager, keys)`——**一次 `ListMetas`** 算出所有请求 key 的级联闭包并集，共享 `seen` 去重（父子同选不会重复删同一 key），顺序保证**子在父前**（中途崩溃也不会留下指向已删父会话的孤儿）。
+   - `DeleteSessions`——先对全部 key `cancelActiveSessionTurn`，再逐个 `manager.Delete`；**部分失败不回滚**，按 key 报 `Failed{key, error}`。删除成功后的清理步骤（`RemoveSessionFileMeta` / `commandexec.CloseSession` / `ReleaseFileWatcher`）失败只记日志不进 Failed——会话已经没了，报 failed 只会诱导一次注定 404 的重试。
+   - **返回 `Deleted` 含级联删掉的所有 key**（包括客户端从没加载过的子会话）——前端清缓存直接用它，不再自己递归算闭包。
+   - 单条 `DeleteSession` 改为委托批量路径（一套代码），对外错误语义不变（"session not found" → HTTP 404，有测试钉住）。
+2. 路由 `POST /api/sessions/batch-delete`，body `{root, keys[]}`，响应 `{deleted[], failed[{key,error}]}`。
+3. 前端 `services/session.ts` 加 `deleteSessions(rootId, keys)`；App 的 `handleDeleteSession` 清理逻辑抽成 `cleanupDeletedSessions(rootID, deletedKeys)`，单删/批删共用，且**单删也走批量端点**——服务端返回的真实删除清单比客户端在部分加载的列表上递归靠谱。
+4. `SessionList.tsx` 多选：头部"批量选择"按钮进入选择模式 → 行首 checkbox（点卡片任意处即切换选中，`onClickCapture` 拦截打开/菜单）→ 底部操作条（全选/取消全选 + 已选计数 + 删除 + 取消）。
+   - **二次确认**：`window.confirm`（与项目删除同款），选中项有子会话时文案明确写"其下的 N 个子会话会一并删除"。
+   - 全选只选**当前可见**的行（折叠的 Agent 分组里的不算），否则确认框里的数字解释不通。
+   - 会话在选择期间被别处删掉/切根时自动剔除失效 key；进入搜索结果模式自动退出选择模式。
+   - 删除失败（`onDeleteMany` 返回 false）保留选择状态，用户可直接重试。
 
-**必须做真正的批量端点**：
-
-1. 后端新增 `DeleteSessionsInput{ RootID string; Keys []string }` 与 `Service.DeleteSessions`：
-   - **只调一次 `ListMetas`**，一次性算出所有传入 key 的 cascade 闭包**并集**（父子同时被选中时要去重，避免重复删同一 key）。
-   - 复用现有单条流程的每一步：`cancelActiveSessionTurn` → `manager.Delete` → `root.RemoveSessionFileMeta` → `commandexec.CloseSession` → `ReleaseFileWatcher`。
-   - **部分失败要能报告**：返回 `{deleted: []string, failed: [{key, error}]}`，不要一条失败就整批回滚——用户重试成本高。
-2. 新增路由 `POST /api/sessions/batch-delete`。
-3. 前端 `services/session.ts` 加 `deleteSessions(rootId, keys)`。可直接参照现有批量先例 `importExternalSessionsBatch`（调用处 `web/src/App.tsx:5962`）。
-4. `SessionList.tsx` 增加多选：目前**无任何多选基建**（无 checkbox、无 `selectedKeys`）。需要
-   - 选择模式开关（长按进入 / 顶部「选择」按钮）
-   - 行内 checkbox + 全选
-   - 底部批量操作条 + **二次确认弹窗**（删除不可逆，且会级联删子会话——确认文案必须写明「将同时删除 N 个子会话」）
+**测试**：`session_batch_delete_test.go` 5 例——并集去重（父+子+独立会话同删，key 不重复）、子先于父的删除顺序、missing key 按条报告且不影响其余、空 key 列表拒绝、单删路径 404 语义不变。原有 `TestDeleteSessionDeletesSubSessionTree` 经新路径继续通过。
 
 ---
 
@@ -256,7 +256,7 @@ Windows 上本地 CLI token 文件（`server/app/local_cli_token.go`）与 relay
 ### 阶段 2 —— 会话管理（中等）
 
 7. **#5 Agent 分组折叠**（§2.4）——照抄现有项目分组基建。✅ 已完成（2026-08-21）
-8. **#3 批量删除会话**（§2.3）——**务必走批量端点，不要前端循环**。
+8. **#3 批量删除会话**（§2.3）——**务必走批量端点，不要前端循环**。✅ 已完成（2026-08-21）
 
 ### 阶段 3 —— 有技术风险
 

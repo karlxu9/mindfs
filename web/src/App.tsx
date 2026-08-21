@@ -5560,32 +5560,8 @@ export function App({ onGoHome }: AppProps) {
     [handleSelectSession, isMobile, rootSessionKey, bumpCacheVersion],
   );
 
-  const handleDeleteSession = useCallback(
-    async (session: SessionItem) => {
-      const sessionKey = session?.key || session?.session_key;
-      const rootID =
-        (session?.root_id as string | undefined) || currentRootIdRef.current;
-      if (!rootID || !sessionKey) return;
-
-      const deleted = await sessionService.deleteSession(rootID, sessionKey);
-      if (!deleted) {
-        reportError("session.delete_failed", t("session.deleteFailed"));
-        return;
-      }
-
-      const deletedKeys = new Set<string>();
-      const collectDeletedKeys = (key: string) => {
-        if (!key || deletedKeys.has(key)) return;
-        deletedKeys.add(key);
-        for (const item of sessionsRef.current) {
-          const itemKey = item.key || item.session_key || "";
-          if (String(item.parent_session_key || "").trim() === key) {
-            collectDeletedKeys(itemKey);
-          }
-        }
-      };
-      collectDeletedKeys(sessionKey);
-
+  const cleanupDeletedSessions = useCallback(
+    (rootID: string, deletedKeys: Set<string>) => {
       setSessions((prev) =>
         prev.filter((item) => !deletedKeys.has(item.key || item.session_key || "")),
       );
@@ -5660,6 +5636,51 @@ export function App({ onGoHome }: AppProps) {
       setDrawerSessionForRoot,
       setMultiProjectSessionPending,
     ],
+  );
+
+  // Single and batch delete both go through the batch endpoint: it resolves
+  // every cascade from one server-side scan and returns the keys actually
+  // deleted -- including unloaded children this client has never seen -- so
+  // the cache cleanup does not have to recompute the closure from a partial
+  // session list.
+  const handleDeleteSessions = useCallback(
+    async (items: SessionItem[]): Promise<boolean> => {
+      const rootID =
+        (items[0]?.root_id as string | undefined) || currentRootIdRef.current;
+      const keys = Array.from(
+        new Set(
+          items
+            .map((item) => item?.key || item?.session_key || "")
+            .filter(Boolean),
+        ),
+      );
+      if (!rootID || keys.length === 0) return false;
+
+      const result = await sessionService.deleteSessions(rootID, keys);
+      if (!result) {
+        reportError("session.delete_failed", t("session.deleteFailed"));
+        return false;
+      }
+      if (result.deleted.length > 0) {
+        cleanupDeletedSessions(rootID, new Set(result.deleted));
+      }
+      if (result.failed.length > 0) {
+        reportError(
+          "session.delete_failed",
+          t("session.batchDeleteFailed", { count: result.failed.length }),
+        );
+        return false;
+      }
+      return true;
+    },
+    [cleanupDeletedSessions, t],
+  );
+
+  const handleDeleteSession = useCallback(
+    async (session: SessionItem) => {
+      await handleDeleteSessions([session]);
+    },
+    [handleDeleteSessions],
   );
 
   const handleRenameSession = useCallback(
@@ -14164,6 +14185,7 @@ export function App({ onGoHome }: AppProps) {
         onPin={handlePinSession}
         onRename={handleRenameSession}
         onDelete={handleDeleteSession}
+        onDeleteMany={handleDeleteSessions}
         onLoadChildren={
           sessionSearchOpen && sessionSearchResultsMode
             ? undefined

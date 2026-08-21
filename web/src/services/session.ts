@@ -1335,6 +1335,31 @@ class SessionService {
     }
   }
 
+  // One request, one server-side session scan, no matter how many sessions
+  // are selected -- a client loop over deleteSession would cost a full scan
+  // per key. Returns the keys the server actually deleted (including cascaded
+  // children the caller never named) so callers can clean their caches
+  // without recomputing the closure, plus per-key failures.
+  async deleteSessions(
+    rootId: string,
+    sessionKeys: string[],
+  ): Promise<{ deleted: string[]; failed: Array<{ key: string; error: string }> } | null> {
+    try {
+      const data = await protectedJSON<any>(appURL("/api/sessions/batch-delete"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ root: rootId, keys: sessionKeys }),
+      });
+      return {
+        deleted: Array.isArray(data?.deleted) ? data.deleted : [],
+        failed: Array.isArray(data?.failed) ? data.failed : [],
+      };
+    } catch (err) {
+      console.error("[Session] Failed to batch delete sessions:", err);
+      return null;
+    }
+  }
+
   async renameSession(
     rootId: string,
     sessionKey: string,

@@ -61,6 +61,9 @@ type SessionListProps = {
   onLoadOlder?: () => void;
   loadingOlder?: boolean;
   hasMore?: boolean;
+  // Deletes the given sessions in one request. Returning false keeps the
+  // selection so the user can retry.
+  onDeleteMany?: (sessions: SessionItem[]) => Promise<boolean> | boolean;
 };
 
 const COLLAPSED_CHILD_SESSION_LIMIT = 3;
@@ -322,6 +325,7 @@ export function SessionList({
   onLoadOlder,
   loadingOlder = false,
   hasMore = false,
+  onDeleteMany,
 }: SessionListProps) {
   const { t } = useI18n();
   const effectiveEmptyText = emptyText || t("sessionList.empty");
@@ -381,6 +385,36 @@ export function SessionList({
       // Same as above.
     }
   }, [collapsedAgentGroups]);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState<Set<string>>(() => new Set());
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  // Sessions can disappear underneath the selection (another client deletes
+  // them, the root switches); a stale key would silently inflate the count in
+  // the confirm dialog.
+  useEffect(() => {
+    setSelectedForDelete((prev) => {
+      if (prev.size === 0) {
+        return prev;
+      }
+      const alive = new Set(sessions.map((item) => item.key));
+      let changed = false;
+      const next = new Set<string>();
+      for (const key of prev) {
+        if (alive.has(key)) {
+          next.add(key);
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [sessions]);
+  useEffect(() => {
+    if (searchResultsMode) {
+      setSelectionMode(false);
+      setSelectedForDelete(new Set());
+    }
+  }, [searchResultsMode]);
   const visibleSessions = useMemo(() => {
     if (searchResultsMode) {
       return sessions.map((session): VisibleSessionRow => ({ type: "session", session }));
@@ -525,6 +559,71 @@ export function SessionList({
     }
   };
 
+  const toggleSelected = (key: string) => {
+    setSelectedForDelete((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  // Only rows the user can currently see are eligible for select-all;
+  // selecting sessions hidden inside a collapsed agent group would make the
+  // confirm count unexplainable.
+  const renderedSessionKeys = (): string[] => {
+    const rows = agentGroups
+      ? agentGroups.flatMap((group) => (collapsedAgentGroups[group.agent] ? [] : group.rows))
+      : visibleSessions;
+    const keys: string[] = [];
+    for (const row of rows) {
+      if (row.type === "session") {
+        keys.push(row.session.key);
+      }
+    }
+    return keys;
+  };
+
+  const handleBatchDelete = async () => {
+    if (!onDeleteMany || batchDeleting || selectedForDelete.size === 0) {
+      return;
+    }
+    const items = sessions.filter((item) => selectedForDelete.has(item.key));
+    if (items.length === 0) {
+      return;
+    }
+    // Count loaded children that will be cascaded but were not themselves
+    // selected, so the confirm text can warn about them. Children not yet
+    // loaded are covered by the generic cascade wording.
+    const selected = new Set(items.map((item) => item.key));
+    let cascadedChildren = 0;
+    for (const item of sessions) {
+      const parentKey = String(item.parent_session_key || "").trim();
+      if (parentKey && !selected.has(item.key) && selected.has(parentKey)) {
+        cascadedChildren++;
+      }
+    }
+    const message = cascadedChildren > 0
+      ? t("sessionList.batchDeleteConfirmWithChildren", { count: items.length, childCount: cascadedChildren })
+      : t("sessionList.batchDeleteConfirm", { count: items.length });
+    if (!window.confirm(message)) {
+      return;
+    }
+    setBatchDeleting(true);
+    try {
+      const ok = await onDeleteMany(items);
+      if (ok !== false) {
+        setSelectedForDelete(new Set());
+        setSelectionMode(false);
+      }
+    } finally {
+      setBatchDeleting(false);
+    }
+  };
+
   const renderRow = (row: VisibleSessionRow): React.ReactNode => {
     if (row.type === "child-toggle") {
       const loading = !!loadingChildren[row.parent.key];
@@ -557,7 +656,7 @@ export function SessionList({
       );
     }
     const session = row.session;
-    return (
+    const card = (
       <SessionCard
         key={session.key}
         session={session}
@@ -573,6 +672,33 @@ export function SessionList({
         onRename={onRename}
         onDelete={onDelete}
       />
+    );
+    if (!selectionMode) {
+      return card;
+    }
+    const checked = selectedForDelete.has(session.key);
+    return (
+      <div key={`select-${session.key}`} style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={() => toggleSelected(session.key)}
+          aria-label={t("sessionList.selectSession", { name: session.name || session.key })}
+          style={{ flexShrink: 0, marginLeft: "4px", cursor: "pointer" }}
+        />
+        <div
+          style={{ flex: 1, minWidth: 0 }}
+          // In selection mode every click on the card toggles the checkbox;
+          // opening sessions or their menus would fight the selection flow.
+          onClickCapture={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleSelected(session.key);
+          }}
+        >
+          {card}
+        </div>
+      </div>
     );
   };
 
@@ -670,6 +796,45 @@ export function SessionList({
                 <path d="M8 18h12" />
               </svg>
             </button>
+            {onDeleteMany ? (
+              <button
+                type="button"
+                aria-label={t("sessionList.selectSessions")}
+                aria-pressed={selectionMode}
+                title={t("sessionList.selectSessions")}
+                onClick={() => {
+                  setSelectionMode((prev) => {
+                    if (prev) {
+                      setSelectedForDelete(new Set());
+                    }
+                    return !prev;
+                  });
+                }}
+                style={{
+                  width: "34px",
+                  height: "34px",
+                  minWidth: "34px",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: 0,
+                  background: "transparent",
+                  color: selectionMode ? "var(--accent-color)" : "var(--text-secondary)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="5" width="6" height="6" rx="1" />
+                  <path d="m4.5 8 1.5 1.5L8.5 7" />
+                  <path d="M13 7h8" />
+                  <rect x="3" y="14" width="6" height="6" rx="1" />
+                  <path d="M13 16h8" />
+                </svg>
+              </button>
+            ) : null}
           </div>
         )}
         {headerAction ? (
@@ -907,6 +1072,85 @@ export function SessionList({
           </div>
         )}
       </div>
+      {selectionMode ? (
+        <div
+          style={{
+            flexShrink: 0,
+            borderTop: "1px solid var(--border-color)",
+            background: "var(--mindfs-topbar-bg, transparent)",
+            padding: "8px 10px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            boxSizing: "border-box",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              const keys = renderedSessionKeys();
+              const allSelected = keys.length > 0 && keys.every((key) => selectedForDelete.has(key));
+              setSelectedForDelete(allSelected ? new Set() : new Set(keys));
+            }}
+            style={{
+              border: "1px solid var(--border-color)",
+              background: "transparent",
+              color: "var(--text-primary)",
+              borderRadius: "8px",
+              padding: "5px 10px",
+              cursor: "pointer",
+              fontSize: "12px",
+              flexShrink: 0,
+            }}
+          >
+            {(() => {
+              const keys = renderedSessionKeys();
+              const allSelected = keys.length > 0 && keys.every((key) => selectedForDelete.has(key));
+              return allSelected ? t("sessionList.clearSelection") : t("sessionList.selectAll");
+            })()}
+          </button>
+          <span style={{ flex: 1, minWidth: 0, fontSize: "12px", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {t("sessionList.selectedCount", { count: selectedForDelete.size })}
+          </span>
+          <button
+            type="button"
+            disabled={batchDeleting || selectedForDelete.size === 0}
+            onClick={() => void handleBatchDelete()}
+            style={{
+              border: "1px solid rgba(220,38,38,0.4)",
+              background: "transparent",
+              color: batchDeleting || selectedForDelete.size === 0 ? "var(--text-secondary)" : "#dc2626",
+              borderRadius: "8px",
+              padding: "5px 10px",
+              cursor: batchDeleting || selectedForDelete.size === 0 ? "default" : "pointer",
+              fontSize: "12px",
+              flexShrink: 0,
+              opacity: batchDeleting || selectedForDelete.size === 0 ? 0.6 : 1,
+            }}
+          >
+            {batchDeleting ? t("sessionList.loading") : t("sessionList.deleteSelected")}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectionMode(false);
+              setSelectedForDelete(new Set());
+            }}
+            style={{
+              border: "none",
+              background: "transparent",
+              color: "var(--text-secondary)",
+              borderRadius: "8px",
+              padding: "5px 8px",
+              cursor: "pointer",
+              fontSize: "12px",
+              flexShrink: 0,
+            }}
+          >
+            {t("common.cancel")}
+          </button>
+        </div>
+      ) : null}
       <style>{`
         @keyframes mindfs-bound-pulse {
           0%, 100% { opacity: 1; box-shadow: 0 0 0 1.5px rgba(37,99,235,0.14); }
