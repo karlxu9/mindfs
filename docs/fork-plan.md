@@ -104,23 +104,23 @@
 
 ---
 
-### 2.4　#5 会话列表按 Agent 分类折叠【P1】
+### 2.4　#5 会话列表按 Agent 分类折叠【P1】　✅ 已实现（2026-08-21）
 
-**好消息——分组折叠的基建已存在，照抄即可**。`web/src/components/SessionList.tsx` 里已有一整套按**项目**分组的实现可直接镜像：
+**实现**（收敛在 `SessionList.tsx` 内部 + 一个纯逻辑模块，`MultiProjectSessionList` 不动）：
 
-| 已有件 | 位置 | 用途 |
-|---|---|---|
-| `ProjectSessionGroup` 类型 | `SessionList.tsx:78` | 分组数据结构模板 |
-| `ToggleRowButton` | `SessionList.tsx:108` | 已含 expand / collapse 图标与 a11y label |
-| `expandedChildren` state | `SessionList.tsx:324` | 折叠状态管理模板 |
-| `COLLAPSED_CHILD_SESSION_LIMIT = 3` | `SessionList.tsx:62` | 折叠阈值模板 |
-| 会话的 agent 字段 | `SessionList.tsx:18` `agent?: string` | **分组依据已在数据里** |
+1. 新模块 `web/src/services/sessionAgentGroups.ts`（无 import 纯模块，沿用 vm 沙箱测试方式）：
+   - `buildAgentGroups`——**在已构建的行列表上分组**，不是在会话数组上。会话列表不是平的：子会话和"展开更多"行跟在顶层父会话后面，按行走、把每一行归到最近一个顶层会话的 agent 名下，子会话永远跟着父会话走（即使子会话是别的 agent 产的）。
+   - 分组顺序按首次出现——列表本身已是 pinned 优先 + 最近优先，最近活跃的 agent 自然排前，不需要二次排序。
+   - 无 agent 的会话（plugin shell / command）归入 `""` 组，显示为"其他"，**不会消失**。
+   - `agentGroupLabel`——已知 agent 用正式大小写（和 `AgentIcon.tsx` 的 alt 一致：Claude / Codex / DeepSeek Harness / CodeBuddy…），未知的首字母大写。
+2. `SessionList.tsx`：
+   - 头部搜索按钮旁加分组切换按钮（`aria-pressed`，激活时 accent 色），开关持久化到 `mindfs-session-group-by-agent`。
+   - 分组头：分割线 + **AgentIcon 图标 + Agent 名称文字 + 顶层会话数 + 折叠箭头**（用户原话"只用图标下标区分不明显"，所以头部必须带文字）。整行可点折叠，各组折叠状态持久化到 `mindfs-session-agent-groups-collapsed`（按 agent 名全局记，不分项目）。
+   - 行渲染抽成 `renderRow`，平铺/分组两条路径共用，没有复制 JSX。
+   - **搜索结果模式不分组**（搜索结果天然是横切的）。
+   - 与项目分组天然二选一：Agent 分组只在单项目 `SessionList`，多项目视图保持按项目分组，无嵌套。
 
-**改动**：新增 `AgentSessionGroup`（镜像 `ProjectSessionGroup`），按 `session.agent` 聚合；折叠状态复用 `expandedChildren` 的模式并持久化到 localStorage（参照同文件 `PINNED_PROJECTS_STORAGE_KEY`，`:66`）。
-
-**用户原话是「只使用图标下标区分不明显」**——所以除了分组，分组头部应带 **Agent 名称文字 + 图标 + 会话数**，而不是只换个图标。图标组件已有：`web/src/components/AgentIcon.tsx`，资源在 `web/public/assets/agents/`。
-
-**与现有项目分组的关系需定夺**：当前多项目模式已按项目分组（且有 `MULTI_PROJECT_VISIBLE_LIMIT = 6` 硬限，`SessionList.tsx:63`）。建议**做成二选一的分组维度切换**（按项目 / 按 Agent），而不是两层嵌套——嵌套分组在手机窄屏上会挤到不可用。
+**测试**：`web/tests/session-agent-groups.test.mjs`——同 agent 交错合并、子行跟随父会话、无 agent 归"其他"、大小写/空白归一、孤儿结构行不丢、topLevelCount 只数会话不数行、标签映射。
 
 ---
 
@@ -255,7 +255,7 @@ Windows 上本地 CLI token 文件（`server/app/local_cli_token.go`）与 relay
 
 ### 阶段 2 —— 会话管理（中等）
 
-7. **#5 Agent 分组折叠**（§2.4）——照抄现有项目分组基建。
+7. **#5 Agent 分组折叠**（§2.4）——照抄现有项目分组基建。✅ 已完成（2026-08-21）
 8. **#3 批量删除会话**（§2.3）——**务必走批量端点，不要前端循环**。
 
 ### 阶段 3 —— 有技术风险

@@ -3,6 +3,11 @@ import { AgentIcon } from "./AgentIcon";
 import { ModeIcon } from "./ModeIcon";
 import { rootBadgeButtonStyle, rootBadgeStyle } from "./rootBadgeStyle";
 import { useI18n, type Locale } from "../i18n";
+import {
+  agentGroupLabel,
+  buildAgentGroups,
+  normalizeAgentGroup,
+} from "../services/sessionAgentGroups";
 
 export type SessionType = "chat" | "plugin" | "command";
 
@@ -63,6 +68,8 @@ const MULTI_PROJECT_VISIBLE_LIMIT = 6;
 const MAIN_SESSION_ICON_OFFSET = "2px";
 const SUB_SESSION_ICON_OFFSET = "0px";
 const PINNED_PROJECTS_STORAGE_KEY = "mindfs-pinned-session-projects";
+const AGENT_GROUPING_STORAGE_KEY = "mindfs-session-group-by-agent";
+const AGENT_GROUPS_COLLAPSED_STORAGE_KEY = "mindfs-session-agent-groups-collapsed";
 
 type VisibleSessionRow =
   | { type: "session"; session: SessionItem }
@@ -323,6 +330,57 @@ export function SessionList({
   const [expandedChildren, setExpandedChildren] = useState<Record<string, boolean>>({});
   const [loadingChildren, setLoadingChildren] = useState<Record<string, boolean>>({});
   const [childrenHasMore, setChildrenHasMore] = useState<Record<string, boolean>>({});
+  const [groupByAgent, setGroupByAgent] = useState<boolean>(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    try {
+      return window.localStorage.getItem(AGENT_GROUPING_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [collapsedAgentGroups, setCollapsedAgentGroups] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(AGENT_GROUPS_COLLAPSED_STORAGE_KEY) || "{}");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return {};
+      }
+      const next: Record<string, boolean> = {};
+      for (const [key, value] of Object.entries(parsed)) {
+        if (value === true) {
+          next[key] = true;
+        }
+      }
+      return next;
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      window.localStorage.setItem(AGENT_GROUPING_STORAGE_KEY, groupByAgent ? "1" : "0");
+    } catch {
+      // Storage may be unavailable (private mode); the toggle still works for
+      // the session.
+    }
+  }, [groupByAgent]);
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      window.localStorage.setItem(AGENT_GROUPS_COLLAPSED_STORAGE_KEY, JSON.stringify(collapsedAgentGroups));
+    } catch {
+      // Same as above.
+    }
+  }, [collapsedAgentGroups]);
   const visibleSessions = useMemo(() => {
     if (searchResultsMode) {
       return sessions.map((session): VisibleSessionRow => ({ type: "session", session }));
@@ -401,6 +459,27 @@ export function SessionList({
     }
     return byKey;
   }, [sessions]);
+  // Search results are cross-cutting by nature, so grouping only applies to
+  // the normal list.
+  const agentGroups = useMemo(() => {
+    if (!groupByAgent || searchResultsMode) {
+      return null;
+    }
+    const keys = new Set(sessions.map((item) => item.key));
+    return buildAgentGroups<VisibleSessionRow>(
+      visibleSessions.map((row) => {
+        if (row.type !== "session") {
+          return { row, agent: null, isTopLevel: false };
+        }
+        const parentKey = String(row.session.parent_session_key || "").trim();
+        return {
+          row,
+          agent: row.session.agent || "",
+          isTopLevel: !parentKey || !keys.has(parentKey),
+        };
+      }),
+    );
+  }, [groupByAgent, searchResultsMode, sessions, visibleSessions]);
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -444,6 +523,57 @@ export function SessionList({
     } else {
       setExpandedChildren((prev) => ({ ...prev, [parentKey]: false }));
     }
+  };
+
+  const renderRow = (row: VisibleSessionRow): React.ReactNode => {
+    if (row.type === "child-toggle") {
+      const loading = !!loadingChildren[row.parent.key];
+      const hasMoreChildren = !!childrenHasMore[row.parent.key];
+      const label = loading
+        ? t("sessionList.loading")
+        : row.expanded
+          ? hasMoreChildren
+            ? t("sessionList.loadMoreChildren")
+            : t("common.collapse")
+          : row.hiddenCount > 0
+            ? t("sessionList.remainingChildren", { count: row.hiddenCount })
+            : t("sessionList.expandChildren");
+      return (
+        <ToggleRowButton
+          key={`children-toggle-${row.parent.key}`}
+          loading={loading}
+          label={label}
+          showExpandIcon={!loading && (!row.expanded || hasMoreChildren)}
+          showCollapseIcon={!loading && row.expanded}
+          marginLeft={SUB_SESSION_ICON_OFFSET}
+          onClick={() => void handleChildToggle(row)}
+          onCollapse={() =>
+            setExpandedChildren((prev) => ({
+              ...prev,
+              [row.parent.key]: false,
+            }))
+          }
+        />
+      );
+    }
+    const session = row.session;
+    return (
+      <SessionCard
+        key={session.key}
+        session={session}
+        sessionByKey={sessionByKey}
+        selected={session.key === selectedKey}
+        parentHighlighted={!!selectedParentKey && session.key === selectedParentKey}
+        highlightQuery={searchResultsMode ? searchQuery : ""}
+        syncing={isSessionSyncing(session, syncingSessionKeys)}
+        childCount={childCountByParent.get(session.key) || 0}
+        onSelect={onSelect}
+        onSync={onSync}
+        onPin={onPin}
+        onRename={onRename}
+        onDelete={onDelete}
+      />
+    );
   };
 
   return (
@@ -511,6 +641,35 @@ export function SessionList({
                 </svg>
               </button>
             ) : null}
+            <button
+              type="button"
+              aria-label={t("sessionList.groupByAgent")}
+              aria-pressed={groupByAgent}
+              title={t("sessionList.groupByAgent")}
+              onClick={() => setGroupByAgent((prev) => !prev)}
+              style={{
+                width: "34px",
+                height: "34px",
+                minWidth: "34px",
+                border: "none",
+                borderRadius: "8px",
+                padding: 0,
+                background: "transparent",
+                color: groupByAgent ? "var(--accent-color)" : "var(--text-secondary)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 5h16" />
+                <path d="M8 9h12" />
+                <path d="M4 14h16" />
+                <path d="M8 18h12" />
+              </svg>
+            </button>
           </div>
         )}
         {headerAction ? (
@@ -645,56 +804,87 @@ export function SessionList({
           ) : null
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-            {visibleSessions.map((row) => {
-              if (row.type === "child-toggle") {
-                const loading = !!loadingChildren[row.parent.key];
-                const hasMoreChildren = !!childrenHasMore[row.parent.key];
-                const label = loading
-                  ? t("sessionList.loading")
-                  : row.expanded
-                    ? hasMoreChildren
-                      ? t("sessionList.loadMoreChildren")
-                      : t("common.collapse")
-                    : row.hiddenCount > 0
-                      ? t("sessionList.remainingChildren", { count: row.hiddenCount })
-                      : t("sessionList.expandChildren");
-                return (
-                  <ToggleRowButton
-                    key={`children-toggle-${row.parent.key}`}
-                    loading={loading}
-                    label={label}
-                    showExpandIcon={!loading && (!row.expanded || hasMoreChildren)}
-                    showCollapseIcon={!loading && row.expanded}
-                    marginLeft={SUB_SESSION_ICON_OFFSET}
-                    onClick={() => void handleChildToggle(row)}
-                    onCollapse={() =>
-                      setExpandedChildren((prev) => ({
-                        ...prev,
-                        [row.parent.key]: false,
-                      }))
-                    }
-                  />
-                );
-              }
-              const session = row.session;
-              return (
-                <SessionCard
-                  key={session.key}
-                  session={session}
-                  sessionByKey={sessionByKey}
-                  selected={session.key === selectedKey}
-                  parentHighlighted={!!selectedParentKey && session.key === selectedParentKey}
-                  highlightQuery={searchResultsMode ? searchQuery : ""}
-                  syncing={isSessionSyncing(session, syncingSessionKeys)}
-                  childCount={childCountByParent.get(session.key) || 0}
-                  onSelect={onSelect}
-                  onSync={onSync}
-                  onPin={onPin}
-                  onRename={onRename}
-                  onDelete={onDelete}
-                />
-              );
-            })}
+            {agentGroups
+              ? agentGroups.map((group) => {
+                  const collapsed = !!collapsedAgentGroups[group.agent];
+                  const label = agentGroupLabel(group.agent) || t("sessionList.agentGroupOther");
+                  const toggle = () =>
+                    setCollapsedAgentGroups((prev) => ({
+                      ...prev,
+                      [group.agent]: !prev[group.agent],
+                    }));
+                  return (
+                    <section key={`agent-group-${group.agent || "-"}`} style={{ minWidth: 0 }}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={!collapsed}
+                        aria-label={t("sessionList.agentGroupToggle", { name: label })}
+                        title={t("sessionList.agentGroupCount", { count: group.topLevelCount })}
+                        onClick={toggle}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") {
+                            return;
+                          }
+                          event.preventDefault();
+                          toggle();
+                        }}
+                        style={{
+                          minWidth: 0,
+                          height: "22px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: "8px",
+                          padding: "0 2px",
+                          background: "transparent",
+                          boxSizing: "border-box",
+                          cursor: "pointer",
+                          userSelect: "none",
+                        }}
+                      >
+                        <span aria-hidden="true" style={{ height: "1px", flex: 1, minWidth: "12px", background: "var(--border-color)" }} />
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            minWidth: 0,
+                            flexShrink: 1,
+                            fontSize: "11px",
+                            color: "var(--text-secondary)",
+                            fontWeight: 600,
+                          }}
+                        >
+                          <AgentIcon agentName={group.agent || label} style={{ width: 13, height: 13, flexShrink: 0 }} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+                          <span style={{ fontWeight: 400, opacity: 0.8 }}>{group.topLevelCount}</span>
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="11"
+                            height="11"
+                            viewBox="0 0 16 16"
+                            aria-hidden="true"
+                            style={{
+                              flexShrink: 0,
+                              transform: collapsed ? "rotate(-90deg)" : "none",
+                              transition: "transform 0.15s ease",
+                            }}
+                          >
+                            <path fill="currentColor" d="M12.146 5.146a.5.5 0 0 1 .708.708l-4.5 4.5a.5.5 0 0 1-.708 0l-4.5-4.5a.5.5 0 1 1 .708-.708L8 9.293z" />
+                          </svg>
+                        </span>
+                        <span aria-hidden="true" style={{ height: "1px", flex: 1, minWidth: "12px", background: "var(--border-color)" }} />
+                      </div>
+                      {collapsed ? null : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          {group.rows.map(renderRow)}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })
+              : visibleSessions.map(renderRow)}
             {hasMore ? (
               <button
                 type="button"
