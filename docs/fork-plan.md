@@ -124,7 +124,7 @@
 
 ---
 
-### 2.5　#2 Windows Agent CLI 自动加载【P2 · 有上游约束】
+### 2.5　#2 Windows Agent CLI 自动加载【P2 · 有上游约束】　✅ 已实现·方案 A（2026-08-22）
 
 **这是唯一一项「现状是故意为之」的需求，不能简单打开开关。**
 
@@ -161,6 +161,18 @@ replace github.com/roasbeef/claude-agent-sdk-go => github.com/yandc/claude-agent
 所以「改 SDK」的先例和机制都已就位——在 `yandc/claude-agent-sdk-go` 与 `yandc/codex-go-sdk` 里加一个 `SysProcAttr` / `configureCmd func(*exec.Cmd)` 注入钩子，即可全量放开。**但这要维护两个额外的 fork**，跟随上游成本翻倍。
 
 **建议**：先做方案 A 验证收益。只有当你确认 claude/codex 在 Windows 上的手动刷新仍然是日常痛点，再投入方案 B。
+
+**实现（方案 A，2026-08-22）**：
+
+1. `shouldRunBackgroundRuntimeProbe(goos string)` → `shouldRunBackgroundRuntimeProbe(goos string, protocol Protocol) bool`：非 Windows 一律 true；Windows 下只有 `ProtocolACP` 为 true。
+2. 新增 `filterBackgroundProbeDefs(goos string, defs []Definition) []Definition`：非 Windows 原样返回；Windows 只保留 ACP 协议（`protocol` 为空时经 `agentDefinitionProtocol` 回退默认协议，所以 `claude`/`codex` 空协议也正确归入 SDK、被过滤掉，而 `qwen` 等空协议回退到 ACP、保留）。
+3. 三个接线点：
+   - `Start()`：去掉原来「非 Windows 才起后台探测」的整段拦截，改为始终 `go p.safeProbeAll(ctx)`；
+   - `safeProbeAll()`：过滤后再 `probeConfiguredAgents`（`ProbeAll` 保持不过滤，作为将来手动「全部探测」的语义）；
+   - `UpdateConfig()`：`installed` 先过滤再决定是否起后台探测。
+4. 结果：Windows 上 ACP 协议的 agent（Gemini / Qwen / CodeBuddy…绝大多数）现在启动时**自动后台探测**，不再需要手动刷新；只有 `claude` / `codex`（SDK 内部 spawn、无法注入 `CREATE_NO_WINDOW`）仍保持手动，避免黑窗。品种本机 go1.26.5 windows/amd64 全套件零失败。
+
+**测试**：`probe_platform_test.go` 重写 `TestBackgroundRuntimeProbeDisabledOnWindows`（windows×ACP/ClaudeSDK/CodexSDK + darwin/linux），新增 `TestFilterBackgroundProbeDefsOnWindows`（显式 ACP 保留、显式 SDK 过滤、空协议回退）与 `TestFilterBackgroundProbeDefsOnUnixKeepsAll`。
 
 ---
 
@@ -258,9 +270,11 @@ Windows 上本地 CLI token 文件（`server/app/local_cli_token.go`）与 relay
 7. **#5 Agent 分组折叠**（§2.4）——照抄现有项目分组基建。✅ 已完成（2026-08-21）
 8. **#3 批量删除会话**（§2.3）——**务必走批量端点，不要前端循环**。✅ 已完成（2026-08-21）
 
-### 阶段 3 —— 有技术风险
+### 阶段 3 —— 有技术风险　✅ 已完成（2026-08-22）
 
-9. **#2 Windows Agent 探测**（§2.5）——先只做方案 A。
+9. **#2 Windows Agent 探测**（§2.5）——方案 A：Windows 上仅 ACP 协议后台自动探测，claude/codex 保持手动。✅ 已完成（2026-08-22）
+
+> 阶段 3 收尾时顺带发现并修复一个**上游合并带入的 Windows 测试失败**：`TestSendCommandMessagePersistsFinalToolCallAndSuggestion` 用 `printf` 作为命令，而 Windows 的 `userShell` 是 PowerShell（`printf` 不是 cmdlet）→ 命令以 exitCode 1 失败。改为一律用 `echo`（bash / PowerShell 语义一致），保持跨平台覆盖。该测试由上游 `ba59b44 feat: add command run mode` 引入、经 `5790d82` 合并进入本仓。
 
 ---
 
@@ -279,7 +293,7 @@ Windows 上本地 CLI token 文件（`server/app/local_cli_token.go`）与 relay
 | 需求 | 后端 | 前端 |
 |---|---|---|
 | #1 项目复活 | `fs/registry.go:40,90,171` · `app/server.go:85,278,290,298` · `api/appcontext.go:578` | 文件树菜单加「扫描项目」 |
-| #2 Windows 探测 | `agent/probe.go:262,318,323` · （方案 B 需改 `go.mod:36-40` 的 SDK fork） | — |
+| #2 Windows 探测 | `agent/probe.go` `shouldRunBackgroundRuntimeProbe`/`filterBackgroundProbeDefs` · `Start`/`UpdateConfig`/`safeProbeAll` | — |
 | #3 批量删除 | `usecase/session.go:918,950` · `api/http.go:1061` 新增批量路由 | `services/session.ts:1285` · `SessionList.tsx` 多选 |
 | #4 目录显示 | 无需改动（`fs/fs.go:50` 已返回） | `App.tsx:624` 类型已就绪，仅需渲染 |
 | #5 Agent 分组 | 无需改动 | `SessionList.tsx:18,62,66,78,108,324` |
@@ -292,7 +306,7 @@ Windows 上本地 CLI token 文件（`server/app/local_cli_token.go`）与 relay
 | 批量删除前端循环打爆服务端 | 走批量端点，只调一次 `ListMetas`（§2.3） |
 | 级联删除误删子会话 | 确认弹窗写明子会话数量 |
 | tombstone 按 name 记录导致拦不住 | 必须按 `NormalizeComparablePath` 规范化路径记录（§2.1） |
-| Windows 放开探测弹出黑窗 | 只对 `acp` 协议放开（§2.5 方案 A） |
+| Windows 放开探测弹出黑窗 | 只对 `acp` 协议放开（§2.5 方案 A，已实施）；claude-sdk / codex-sdk 由 SDK 内部 spawn、无法注入窗口隐藏，仍保持手动 |
 | 改 ActionBar 破坏国产输入法 | 讯飞 / 搜狗 IME 回车回归测试（§2.6） |
 | fork 与上游分叉 | 阶段 0 建 upstream remote；改动尽量收敛在少数文件，避开 `App.tsx` 高频冲突区 |
 | 在事件循环里调 `watcher.Add()`（Windows 死锁） | 任何新增的 fsnotify 注册都必须走 `queueWatchDir`，不得在 `run()` 里内联 `Add`（阶段 0.5） |
