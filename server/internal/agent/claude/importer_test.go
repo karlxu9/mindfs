@@ -173,7 +173,38 @@ func TestReadClaudeImportedSubagentsLinksAgentToolCall(t *testing.T) {
 	}
 }
 
+// posixRootPrefix is what claudeProjectDirName prepends to a POSIX-style
+// absolute path on the platform running the test.
+//
+// The cases below are written as POSIX paths. Windows has no rootless absolute
+// path, so normalizeComparablePath resolves "/Users/Ye" against the current
+// drive and the encoded name gains a "C--" style prefix. That is not a quirk of
+// this port: Claude Code on Windows encodes E:\claude-workspace\mindfs as
+// E--claude-workspace-mindfs too, so the prefix belongs in the expectation
+// rather than being skipped over.
+func posixRootPrefix(t *testing.T) string {
+	t.Helper()
+	abs, err := filepath.Abs(string(filepath.Separator))
+	if err != nil {
+		t.Fatalf("abs root: %v", err)
+	}
+	volume := filepath.VolumeName(abs)
+	if volume == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range volume {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('-')
+	}
+	return b.String()
+}
+
 func TestClaudeProjectDirNameMatchesClaudeCodeOnDiskEncoding(t *testing.T) {
+	prefix := posixRootPrefix(t)
 	tests := []struct {
 		name string
 		path string
@@ -189,8 +220,9 @@ func TestClaudeProjectDirNameMatchesClaudeCodeOnDiskEncoding(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := claudeProjectDirName(tt.path); got != tt.want {
-				t.Fatalf("claudeProjectDirName(%q) = %q, want %q", tt.path, got, tt.want)
+			want := prefix + tt.want
+			if got := claudeProjectDirName(tt.path); got != want {
+				t.Fatalf("claudeProjectDirName(%q) = %q, want %q", tt.path, got, want)
 			}
 		})
 	}
