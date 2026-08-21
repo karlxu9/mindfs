@@ -242,7 +242,7 @@ func TestSendCommandMessagePersistsFinalToolCallAndSuggestion(t *testing.T) {
 	err = service.SendMessage(context.Background(), SendMessageInput{
 		RootID:  root.ID,
 		Key:     created.Key,
-		Content: "printf mindfs-command",
+		Content: "echo mindfs-command",
 		OnUpdate: func(event agenttypes.Event) {
 			if event.Type == agenttypes.EventTypeMessageDone {
 				sawDone = true
@@ -291,11 +291,11 @@ func TestSendCommandMessagePersistsFinalToolCallAndSuggestion(t *testing.T) {
 		t.Fatalf("aux[2] = %#v, want final command toolcall", aux[2])
 	}
 
-	candidates, err := SearchCommandSuggestions(context.Background(), manager, root.ID, "printf", 10)
+	candidates, err := SearchCommandSuggestions(context.Background(), manager, root.ID, "echo", 10)
 	if err != nil {
 		t.Fatalf("SearchCommandSuggestions: %v", err)
 	}
-	if len(candidates) != 1 || candidates[0].Name != "printf mindfs-command" {
+	if len(candidates) != 1 || candidates[0].Name != "echo mindfs-command" {
 		t.Fatalf("candidates = %#v", candidates)
 	}
 }
