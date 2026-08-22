@@ -205,3 +205,13 @@
 - 前端：Dialog 表单加"单次执行超时（分钟）"数字输入（留空 = 默认 60）；任务行在上次/下次运行下方以次级信息展示"上次因仍在运行而跳过：<时间>"。i18n 双语 3 词条。
 
 **验证记录**：三例后端测试——真实挂起的 SendMessage（阻塞至 ctx.Done）在 50ms 缩放超时后返回、running 锁释放、LastError 含 "timed out"、下一次触发正常执行（R-6.1 验收的直接模拟）；预置真实失败 + running 锁后跳过：LastError 保留 "real failure"、LastSkippedAt 写入（R-6.2 验收）；旧格式任务文件加载兼容（新字段零值、默认超时 60m）。Go 全量 + typecheck + web 全量绿。
+
+## T21　scheduled 执行历史 + cron 友好性【R-6.3 / R-6.4，P2】
+
+**实现**（2026-08-22）：
+
+- `RunRecord{started_at, finished_at, ok, error}` 内嵌任务对象 `history[]`（omitempty），环形保留最新 20 条、存储正序；三个落点（SendMessage 成功/失败、早期失败 recordRunError）统一经 `appendRunRecord`。跳过不算执行、不记历史。文件级读-改-写竞态按设计既定记录不修。
+- 解析器加 `cron.Descriptor`（`@daily`/`@weekly`/`@every 1h30m` 等可保存并触发）；`decorateTask` 的 `NextRunAt`/`NextNewSessionAt` 统一转 UTC（与 Last* 口径一致，前端 `toLocaleString` 本地化）。
+- 前端：`CronEditor` 支持 descriptor 模式——值以 `@` 开头时切换为整体输入框并按 descriptor 正则整体校验（第一段输入 `@daily` 自动切换）；任务行加"执行历史（N）"折叠列表（倒序、✓/✗、时间、错误摘要截断悬停可见全文）。i18n 双语 2 词条。
+
+**验证记录**：环形淘汰边界（第 21 条挤掉最旧）；成功/失败两次执行的历史落盘断言；`@daily` 解析 + `@every 100ms` 任务经真实 cron 触发 + 装饰后 NextRunAt 为 UTC（R-6.4 验收①②的直接模拟）。Go 全量 + typecheck + web 全量绿。

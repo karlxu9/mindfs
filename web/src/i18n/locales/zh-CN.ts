@@ -784,6 +784,8 @@ export const zhCN = {
   "scheduled.timeoutLabel": "单次执行超时（分钟）",
   "scheduled.timeoutPlaceholder": "留空为默认 60 分钟",
   "scheduled.lastSkipped": "上次因仍在运行而跳过：{time}",
+  "scheduled.historyShow": "执行历史（{count}）",
+  "scheduled.historyHide": "收起执行历史",
   "diagnostics.title": "服务诊断",
   "diagnostics.overview": "状态总览",
   "diagnostics.logs": "日志尾部",

@@ -38,19 +38,19 @@ type SessionActivityBroadcaster interface {
 }
 
 type Task struct {
-	ID                 string     `json:"id"`
-	RootID             string     `json:"root_id"`
-	Name               string     `json:"name"`
-	Enabled            bool       `json:"enabled"`
-	TaskCron           string     `json:"task_cron"`
-	Agent              string     `json:"agent"`
-	Model              string     `json:"model,omitempty"`
-	Mode               string     `json:"mode,omitempty"`
-	Effort             string     `json:"effort,omitempty"`
-	FastService        string     `json:"fast_service,omitempty"`
-	Prompt             string     `json:"prompt"`
-	NewSessionCron     string     `json:"new_session_cron,omitempty"`
-	SessionKey         string     `json:"session_key,omitempty"`
+	ID             string `json:"id"`
+	RootID         string `json:"root_id"`
+	Name           string `json:"name"`
+	Enabled        bool   `json:"enabled"`
+	TaskCron       string `json:"task_cron"`
+	Agent          string `json:"agent"`
+	Model          string `json:"model,omitempty"`
+	Mode           string `json:"mode,omitempty"`
+	Effort         string `json:"effort,omitempty"`
+	FastService    string `json:"fast_service,omitempty"`
+	Prompt         string `json:"prompt"`
+	NewSessionCron string `json:"new_session_cron,omitempty"`
+	SessionKey     string `json:"session_key,omitempty"`
 	// TimeoutMinutes caps a single run; 0 falls back to the 60-minute
 	// default (R-6.1). omitempty keeps old task files readable.
 	TimeoutMinutes int        `json:"timeout_minutes,omitempty"`
@@ -59,13 +59,32 @@ type Task struct {
 	LastError      string     `json:"last_error,omitempty"`
 	// LastSkippedAt records a "previous run still active" skip separately, so
 	// it never clobbers the real LastError (R-6.2).
-	LastSkippedAt      *time.Time `json:"last_skipped_at,omitempty"`
-	LastSessionResetAt *time.Time `json:"last_session_reset_at,omitempty"`
-	NextRunAt          *time.Time `json:"next_run_at,omitempty"`
-	NextNewSessionAt   *time.Time `json:"next_new_session_at,omitempty"`
-	Running            bool       `json:"running,omitempty"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
+	LastSkippedAt      *time.Time  `json:"last_skipped_at,omitempty"`
+	LastSessionResetAt *time.Time  `json:"last_session_reset_at,omitempty"`
+	NextRunAt          *time.Time  `json:"next_run_at,omitempty"`
+	NextNewSessionAt   *time.Time  `json:"next_new_session_at,omitempty"`
+	History            []RunRecord `json:"history,omitempty"`
+	Running            bool        `json:"running,omitempty"`
+	CreatedAt          time.Time   `json:"created_at"`
+	UpdatedAt          time.Time   `json:"updated_at"`
+}
+
+// RunRecord is one execution in a task's history (R-6.3); the ring keeps the
+// newest maxRunHistory entries, oldest first.
+type RunRecord struct {
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	OK         bool       `json:"ok"`
+	Error      string     `json:"error,omitempty"`
+}
+
+const maxRunHistory = 20
+
+func appendRunRecord(t *Task, record RunRecord) {
+	t.History = append(t.History, record)
+	if len(t.History) > maxRunHistory {
+		t.History = t.History[len(t.History)-maxRunHistory:]
+	}
 }
 
 const defaultRunTimeout = 60 * time.Minute
@@ -141,7 +160,8 @@ type Service struct {
 }
 
 func NewService(registry usecase.Registry, broadcaster SessionActivityBroadcaster) *Service {
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	// Descriptor enables @daily / @weekly / @every 1h30m etc. (R-6.4).
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 	return &Service{
 		registry:    registry,
 		usecase:     &usecase.Service{Registry: registry},
@@ -607,6 +627,7 @@ func (s *Service) runTask(ctx context.Context, task Task, force bool) error {
 			t.LastRunAt = &now
 			t.LastError = err.Error()
 			t.UpdatedAt = now
+			appendRunRecord(t, RunRecord{StartedAt: userTimestamp, FinishedAt: &now, Error: err.Error()})
 		})
 		return err
 	}
@@ -618,6 +639,7 @@ func (s *Service) runTask(ctx context.Context, task Task, force bool) error {
 		t.LastSuccessAt = &now
 		t.LastError = ""
 		t.UpdatedAt = now
+		appendRunRecord(t, RunRecord{StartedAt: userTimestamp, FinishedAt: &now, OK: true})
 	})
 }
 
@@ -627,6 +649,7 @@ func (s *Service) recordRunError(task Task, err error) error {
 		t.LastRunAt = &now
 		t.LastError = err.Error()
 		t.UpdatedAt = now
+		appendRunRecord(t, RunRecord{StartedAt: now, FinishedAt: &now, Error: err.Error()})
 	})
 }
 
@@ -668,8 +691,10 @@ func (s *Service) decorateTask(task *Task) {
 	if task == nil {
 		return
 	}
+	// Next* times are stored in UTC like Last* already is, so the frontend
+	// localizes one consistent zone (R-6.4).
 	if schedule, err := s.parser.Parse(strings.TrimSpace(task.TaskCron)); err == nil {
-		next := schedule.Next(time.Now())
+		next := schedule.Next(time.Now()).UTC()
 		task.NextRunAt = &next
 	}
 	if strings.TrimSpace(task.NewSessionCron) != "" {
@@ -678,7 +703,7 @@ func (s *Service) decorateTask(task *Task) {
 			if task.LastSessionResetAt != nil && !task.LastSessionResetAt.IsZero() {
 				base = task.LastSessionResetAt.UTC()
 			}
-			next := schedule.Next(base)
+			next := schedule.Next(base).UTC()
 			task.NextNewSessionAt = &next
 		}
 	}

@@ -90,6 +90,14 @@ function joinCron(parts: string[]): string {
     .join(" ");
 }
 
+// Descriptors like @daily or @every 1h30m are validated whole, not per
+// segment (R-6.4).
+function isCronDescriptorValid(value: string): boolean {
+  const raw = value.trim().toLowerCase();
+  if (/^@(yearly|annually|monthly|weekly|daily|midnight|hourly)$/.test(raw)) return true;
+  return /^@every\s+([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$/.test(raw);
+}
+
 function isCronSegmentValid(value: string, index: number): boolean {
   const raw = value.trim();
   if (!raw) return false;
@@ -298,10 +306,12 @@ function CronEditor({
   }, [value]);
   const placeholderParts = splitCron(placeholder || "* * * * *");
   const allEmpty = parts.every((part) => !part.trim());
+  const isDescriptor = value.trim().startsWith("@");
   const shouldValidate = touched.some(Boolean) && !(allowEmpty && allEmpty);
-  const invalid =
-    shouldValidate &&
-    parts.some((part, index) => !isCronSegmentValid(part || "", index));
+  const invalid = isDescriptor
+    ? shouldValidate && !isCronDescriptorValid(value)
+    : shouldValidate &&
+      parts.some((part, index) => !isCronSegmentValid(part || "", index));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div
@@ -344,6 +354,22 @@ function CronEditor({
           </div>
         ) : null}
       </div>
+      {isDescriptor ? (
+        <input
+          className="scheduled-agent-task-input"
+          value={value}
+          onChange={(event) => {
+            lastEmittedRef.current = event.target.value;
+            onChange(event.target.value);
+          }}
+          onBlur={() => setTouched([true, true, true, true, true])}
+          placeholder="@daily / @every 1h30m"
+          style={{
+            ...fieldStyle,
+            borderColor: invalid ? "#ef4444" : "var(--border-color)",
+          }}
+        />
+      ) : (
       <div
         style={{
           display: "grid",
@@ -382,7 +408,12 @@ function CronEditor({
                 const next = [...parts];
                 next[index] = event.target.value;
                 setParts(next);
-                const nextValue = joinCron(next);
+                // Typing "@daily" into the first segment switches the editor
+                // to whole-descriptor mode.
+                const nextValue =
+                  index === 0 && next[0].trim().startsWith("@")
+                    ? next[0].trim()
+                    : joinCron(next);
                 lastEmittedRef.current = nextValue;
                 onChange(nextValue);
               }}
@@ -403,6 +434,7 @@ function CronEditor({
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }
@@ -422,6 +454,7 @@ export function ScheduledAgentTaskDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [runningTaskId, setRunningTaskId] = useState<string | null>(null);
+  const [historyOpenId, setHistoryOpenId] = useState<string | null>(null);
   const dialogBodyRef = useRef<HTMLDivElement | null>(null);
 
   const defaultAgent = useMemo(
@@ -779,6 +812,65 @@ export function ScheduledAgentTaskDialog({
               {task.last_skipped_at ? (
                 <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)", opacity: 0.85 }}>
                   {t("scheduled.lastSkipped", { time: formatTime(task.last_skipped_at, locale, "") })}
+                </div>
+              ) : null}
+              {(task.history?.length ?? 0) > 0 ? (
+                <div style={{ marginTop: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setHistoryOpenId((prev) => (prev === task.id ? null : task.id))
+                    }
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: "var(--accent-color)",
+                      fontSize: 11,
+                      cursor: "pointer",
+                      padding: 0,
+                    }}
+                  >
+                    {historyOpenId === task.id
+                      ? t("scheduled.historyHide")
+                      : t("scheduled.historyShow", { count: task.history?.length ?? 0 })}
+                  </button>
+                  {historyOpenId === task.id ? (
+                    <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2 }}>
+                      {[...(task.history ?? [])].reverse().map((record, index) => (
+                        <div
+                          key={`${record.started_at}-${index}`}
+                          style={{
+                            fontSize: 11,
+                            color: "var(--text-secondary)",
+                            display: "flex",
+                            gap: 6,
+                            alignItems: "baseline",
+                            minWidth: 0,
+                          }}
+                        >
+                          <span style={{ color: record.ok ? "#10b981" : "#ef4444", flexShrink: 0 }}>
+                            {record.ok ? "✓" : "✗"}
+                          </span>
+                          <span style={{ flexShrink: 0 }}>
+                            {formatTime(record.started_at, locale, "")}
+                          </span>
+                          {record.error ? (
+                            <span
+                              style={{
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                minWidth: 0,
+                              }}
+                              title={record.error}
+                            >
+                              {record.error}
+                            </span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>

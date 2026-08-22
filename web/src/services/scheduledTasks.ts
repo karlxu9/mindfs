@@ -23,9 +23,17 @@ export type ScheduledAgentTask = {
   last_session_reset_at?: string;
   next_run_at?: string;
   next_new_session_at?: string;
+  history?: ScheduledRunRecord[];
   running?: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type ScheduledRunRecord = {
+  started_at: string;
+  finished_at?: string;
+  ok: boolean;
+  error?: string;
 };
 
 export type ScheduledAgentTaskInput = {

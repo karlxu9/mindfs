@@ -786,6 +786,8 @@ export const enUS = {
   "scheduled.timeoutLabel": "Run timeout (minutes)",
   "scheduled.timeoutPlaceholder": "Empty = 60-minute default",
   "scheduled.lastSkipped": "Last skipped (still running): {time}",
+  "scheduled.historyShow": "Run history ({count})",
+  "scheduled.historyHide": "Hide run history",
   "diagnostics.title": "Service diagnostics",
   "diagnostics.overview": "Status overview",
   "diagnostics.logs": "Log tail",
