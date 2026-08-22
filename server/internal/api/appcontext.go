@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -15,7 +16,9 @@ import (
 	"mindfs/server/internal/agent"
 	agenttypes "mindfs/server/internal/agent/types"
 	"mindfs/server/internal/api/usecase"
+	"mindfs/server/internal/backup"
 	"mindfs/server/internal/commandexec"
+	configpkg "mindfs/server/internal/config"
 	"mindfs/server/internal/e2ee"
 	"mindfs/server/internal/fs"
 	"mindfs/server/internal/githubimport"
@@ -634,6 +637,35 @@ func (s *AppContext) RemoveRoot(path string) (fs.RootInfo, error) {
 		s.Scheduled.RemoveRoot(dir.ID)
 	}
 	return dir, nil
+}
+
+// ExportBackup satisfies the usecase layer's optional backupExporter
+// interface: it wires the backup exporter to the live roots and the
+// consistent-snapshot capabilities of the session and kanban stores (R-5.1).
+func (s *AppContext) ExportBackup(ctx context.Context, w io.Writer, input backup.ExportInput) (backup.Manifest, error) {
+	configDir, err := configpkg.MindFSConfigDir()
+	if err != nil {
+		configDir = ""
+	}
+	exporter := &backup.Exporter{
+		ConfigDir: configDir,
+		Roots:     s.ListRoots(),
+		SnapshotSessionDB: func(ctx context.Context, rootID, targetPath string) error {
+			manager, err := s.GetSessionManager(rootID)
+			if err != nil {
+				return err
+			}
+			return manager.SnapshotTo(ctx, targetPath)
+		},
+		SnapshotKanbanDB: func(ctx context.Context, rootID, targetPath string) error {
+			svc, err := s.GetKanbanService()
+			if err != nil {
+				return err
+			}
+			return svc.SnapshotTaskDB(ctx, rootID, targetPath)
+		},
+	}
+	return exporter.Export(ctx, w, input)
 }
 
 // Close releases every root's lazily-created resources (file watcher and

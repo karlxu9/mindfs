@@ -161,3 +161,17 @@
 **实现**（2026-08-22）：`session.Manager.SnapshotTo(ctx, targetPath)` 与 `kanban.TaskStore.SnapshotTo(ctx, targetPath)`——均为 `VACUUM INTO ?`（绑定参数，Windows 反斜杠路径无拼接风险），经各自的单连接（`SetMaxOpenConns(1)`）执行、天然与写互斥；目标已存在时 sqlite 自身报错，不覆盖。失败降级（copy + manifest 标注）留 T17。
 
 **验证记录**：session 侧并发竞态测试（20 条预置 + 后台 goroutine 持续 Create 期间快照：写方无错、快照独立打开行数 ≥20、快照后原库继续可写）+ 已存在目标拒绝；kanban 侧 5 行快照行数校验 + 拒绝覆盖。`VACUUM INTO` 参数绑定在 modernc.org/sqlite 下实测可用。全仓测试绿。
+
+## T17　backup 包 + 导出端点【R-5.1 / R-5.2 / R-5.4 后端】
+
+**实现**（2026-08-22）：
+
+- 新包 `server/internal/backup`：`Exporter`（依赖注入 Roots / ConfigDir / 两个快照函数，便于单测）。zip 布局与 manifest 字段按设计 §4.2/4.3：`roots/<id>/` 全量元数据（跳过 `-journal/-wal/-shm/.tmp-`）、session/kanban db 用 T16 快照替换原文件、快照失败降级为直接 copy 并记入 manifest `best_effort`（`commands/history.db` 恒为 best-effort 直接 copy）；`.link` 兜底布局时 db 进 `fallback-db/<escapedRootId>/`、`.link` 指针原样保留、manifest 标 `has_fallback_db`；`userconfig/`（仅 scope=all）排除 logs/`.log`/`.stderr`/`.pid`/tmp，凭据清单（credentials.json、agents-env.json、autostart-environment.json、local-cli-tokens.json、e2ee.json、key.pem、agents-config/）按 `include_credentials` 开关排除。`RESTORE.md`（中文，三布局分节 + 兜底两种恢复方式）经 go:embed 入包。
+- 接线：usecase `backupExporter` 可选接口断言（对齐 rootScanner 先例）；`AppContext.ExportBackup` 组装依赖；`POST /api/backup/export` handler 先写临时文件再流式响应（错误可干净返回 + 有 Content-Length），文件名 `mindfs-backup-<UTC 时间戳>.zip`。
+- **与设计的两处偏差**：① 请求参数走 query（`?scope=&root=&include_credentials=`）而非 JSON body——响应是二进制 zip 无法走 `protectedEndpoint` 的 JSON 加密封装，故鉴权对齐 `/api/file` 先例用 `requireRequestProof`，而加密模式下 POST body 也是密文、裸 handler 读不了，query 语义等价；② scope 缺省为 "all"。
+
+**验证记录**：
+
+- backup 包 6 例单测：project 布局（快照替换/jsonl 保留/journal 排除/history 标注/manifest 字段）、.link 兜底布局（fallback-db 归档 + 指针保留 + has_fallback_db）、快照失败降级、凭据开关双向断言（7 项凭据 + 日志/pid 永不入包）、scope=root 选择与非法参数。全仓测试绿。
+- **R-5.2 恢复验证（发布硬门槛）已完成**：沙箱构造三 root（project / home / .link 兜底）各 3 会话 → 起服务经 API 导出（HTTP 200，包 25 项结构与设计一致）→ 删除全部现场数据（appdata、.mindfs、home meta、兜底 db）→ 按 `RESTORE.md` 步骤恢复（兜底 root 用"转常规布局"方式）→ 重新起服务：三 root 的会话列表（9/9）与会话正文（逐 root 抽查 exchange 内容）全部可见。验证脚手架（seed 程序）用后已删除。
+- 导出期间并发写入的正确性由 T16 的快照竞态测试覆盖。

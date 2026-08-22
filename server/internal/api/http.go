@@ -308,6 +308,7 @@ func (h *HTTPHandler) Routes() http.Handler {
 	r.Post("/api/shutdown", h.handleShutdown)
 	r.Get("/api/logs", h.protectedEndpoint(h.handleLogs))
 	r.Get("/api/diagnostics", h.protectedEndpoint(h.handleDiagnostics))
+	r.Post("/api/backup/export", h.handleBackupExport)
 	r.Get("/api/tree", h.protectedEndpoint(h.handleTree))
 	r.Get("/api/file", h.handleFile)
 	r.Get("/api/git/status", h.protectedEndpoint(h.handleGitStatus))

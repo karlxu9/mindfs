@@ -1363,6 +1363,17 @@ func (s *Service) loadForMove(ctx context.Context, rootID, taskID string) (*Task
 	return store, task, tmpl, nil
 }
 
+// SnapshotTaskDB exports a consistent copy of the root's kanban DB for
+// backups (R-5.1). Callers should check that the DB file exists first:
+// opening the store lazily creates the tasks directory.
+func (s *Service) SnapshotTaskDB(ctx context.Context, rootID, targetPath string) error {
+	store, err := s.taskStore(rootID)
+	if err != nil {
+		return err
+	}
+	return store.SnapshotTo(ctx, targetPath)
+}
+
 func (s *Service) taskStore(rootID string) (*TaskStore, error) {
 	rootID = strings.TrimSpace(rootID)
 	if rootID == "" {
