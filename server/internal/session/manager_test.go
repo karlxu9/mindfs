@@ -643,3 +643,47 @@ func TestManagerMarkPendingAskUserAnsweredMergesAnswers(t *testing.T) {
 		t.Fatalf("answeredAt = %#v, want %s", toolCall.Meta["answeredAt"], answeredAt.Format(time.RFC3339Nano))
 	}
 }
+
+// Deleting a session must clean up all three per-session files, including the
+// debug log written by agent/logs when debug capture is enabled (R-3.2).
+func TestDeleteSessionRemovesAllSessionFiles(t *testing.T) {
+	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
+	manager := newTestManager(t, root)
+
+	created, err := manager.Create(context.Background(), CreateInput{Type: TypeChat, Name: "Debug"})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	sessionsDir := filepath.Join(root.MetaDir(), "sessions")
+	for _, name := range []string{
+		created.Key + ".jsonl",
+		created.Key + ".aux.jsonl",
+		created.Key + ".debug.jsonl",
+	} {
+		if err := os.WriteFile(filepath.Join(sessionsDir, name), []byte("{}\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	if err := manager.Delete(context.Background(), created.Key); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		t.Fatalf("read sessions dir: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), created.Key) {
+			t.Fatalf("session file %s left behind after delete", entry.Name())
+		}
+	}
+
+	// A session with no files on disk deletes without error.
+	bare, err := manager.Create(context.Background(), CreateInput{Type: TypeChat, Name: "Bare"})
+	if err != nil {
+		t.Fatalf("create bare session: %v", err)
+	}
+	if err := manager.Delete(context.Background(), bare.Key); err != nil {
+		t.Fatalf("delete bare session: %v", err)
+	}
+}

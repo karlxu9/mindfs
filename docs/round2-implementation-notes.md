@@ -27,3 +27,9 @@
 **验证记录**：`go build ./...` 绿；api 包全量测试绿（含既有备份/切换用例）；本机（Windows）确认新测试正确 SKIP，Unix 分支由 CI ubuntu runner 覆盖。
 
 **边界说明**：`os.WriteFile` 的权限位只对**新建**文件生效，升级用户既有的 0644 文件重写后权限不变。PRD 验收口径即"新写入的文件"，故未额外 chmod；T12 的临时文件 + rename 方案落地后，旧文件会被新建文件替换，权限残留自然消除。
+
+## T3　删除会话清理 `.debug.jsonl`【R-3.2】
+
+**实现**（2026-08-22）：`session/manager.go` 的 `deleteSessionUnsafe` 文件删除清单补第三项。debug 路径按本包既有模式落地：`debugFileTpl` 常量 + `debugPath(key)` 方法（含与 exchange/aux 相同的 key 校验），常量旁注释指向写入方 `agent/logs` 的 `toolCallDebugFileTpl`，防两处漂移。单删、批量删、级联删三条路径均收敛于 `deleteSessionUnsafe`（`usecase.DeleteSession` → `DeleteSessions` → `manager.Delete`），一处修复全覆盖。
+
+**验证记录**：`go build ./...` 绿；session 与 usecase 两包全量测试绿。新增 `TestDeleteSessionRemovesAllSessionFiles`（三文件删净 + 无文件会话删除不报错）与 `TestDeleteSessionsCascadeRemovesDebugLogs`（级联删除连未点名的子会话 debug 文件一并清掉）。

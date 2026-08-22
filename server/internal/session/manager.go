@@ -31,6 +31,8 @@ const (
 	sessionDBLinkExt = ".link"
 	exchangeFileTpl  = "sessions/%s.jsonl"
 	auxFileTpl       = "sessions/%s.aux.jsonl"
+	// Written by agent/logs (toolCallDebugFileTpl); keep the two in sync.
+	debugFileTpl = "sessions/%s.debug.jsonl"
 	selectSessionSQL = `
 	SELECT key, type, parent_session_key, parent_tool_call_id, source, task_id, model, shell, plan_mode, name, related_files_json, related_worktree_json, last_context_window_total_tokens, last_context_window_model_context_window, pinned_at, created_at, updated_at, closed_at
 	FROM sessions`
@@ -1084,6 +1086,13 @@ func (m *Manager) deleteSessionUnsafe(key string) error {
 	if err := os.Remove(filepath.Join(metaDir, filepath.FromSlash(auxPath))); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	debugPath, err := m.debugPath(key)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(metaDir, filepath.FromSlash(debugPath))); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	return nil
 }
 
@@ -1631,6 +1640,19 @@ func (m *Manager) auxPath(key string) (string, error) {
 		return "", fmt.Errorf("invalid session key: %s", key)
 	}
 	return filepath.ToSlash(fmt.Sprintf(auxFileTpl, key)), nil
+}
+
+func (m *Manager) debugPath(key string) (string, error) {
+	if strings.TrimSpace(m.root.MetaDir()) == "" {
+		return "", errors.New("managed dir required")
+	}
+	if key == "" {
+		return "", errors.New("session key required")
+	}
+	if strings.Contains(key, "..") || strings.ContainsRune(key, filepath.Separator) || strings.Contains(key, "/") {
+		return "", fmt.Errorf("invalid session key: %s", key)
+	}
+	return filepath.ToSlash(fmt.Sprintf(debugFileTpl, key)), nil
 }
 
 func (m *Manager) ensureSessionMetaDBUnsafe() (*sql.DB, error) {

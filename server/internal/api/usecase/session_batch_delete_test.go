@@ -2,6 +2,9 @@ package usecase
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	rootfs "mindfs/server/internal/fs"
@@ -135,5 +138,39 @@ func TestDeleteSessionStillReportsSessionNotFound(t *testing.T) {
 	err := service.DeleteSession(ctx, DeleteSessionInput{RootID: "mindfs", Key: "missing"})
 	if err == nil || err.Error() != "session not found" {
 		t.Fatalf("DeleteSession error = %v, want session not found", err)
+	}
+}
+
+// Cascade deletion must clean up the per-session debug logs of children the
+// caller never named, not just their DB rows (R-3.2).
+func TestDeleteSessionsCascadeRemovesDebugLogs(t *testing.T) {
+	ctx, manager, service, root := newBatchDeleteFixture(t)
+	parent := mustCreateSession(t, ctx, manager, "parent", "")
+	child := mustCreateSession(t, ctx, manager, "child", parent.Key)
+
+	sessionsDir := filepath.Join(root.MetaDir(), "sessions")
+	for _, key := range []string{parent.Key, child.Key} {
+		if err := os.WriteFile(filepath.Join(sessionsDir, key+".debug.jsonl"), []byte("{}\n"), 0o644); err != nil {
+			t.Fatalf("write debug log for %s: %v", key, err)
+		}
+	}
+
+	out, err := service.DeleteSessions(ctx, DeleteSessionsInput{RootID: "mindfs", Keys: []string{parent.Key}})
+	if err != nil {
+		t.Fatalf("DeleteSessions: %v", err)
+	}
+	if len(out.Failed) != 0 {
+		t.Fatalf("Failed = %#v, want none", out.Failed)
+	}
+	entries, err := os.ReadDir(sessionsDir)
+	if err != nil {
+		t.Fatalf("read sessions dir: %v", err)
+	}
+	for _, entry := range entries {
+		for _, key := range []string{parent.Key, child.Key} {
+			if strings.HasPrefix(entry.Name(), key) {
+				t.Fatalf("session file %s left behind after cascade delete", entry.Name())
+			}
+		}
 	}
 }
