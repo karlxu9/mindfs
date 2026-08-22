@@ -57,10 +57,36 @@ type OpenOptions struct {
 	ResumeMessageID       string
 }
 
-type Runtime struct{}
+type Runtime struct {
+	mu       sync.Mutex
+	sessions map[string]*session
+}
 
 func NewRuntime() *Runtime {
-	return &Runtime{}
+	return &Runtime{sessions: make(map[string]*session)}
+}
+
+func (r *Runtime) track(s *session) {
+	if r == nil || s == nil {
+		return
+	}
+	r.mu.Lock()
+	r.sessions[s.sessionKey] = s
+	r.mu.Unlock()
+}
+
+// forget drops the session from the registry, but only if it is still the
+// registered one — a reopened session under the same key must not be evicted
+// by its predecessor's Close.
+func (r *Runtime) forget(s *session) {
+	if r == nil || s == nil {
+		return
+	}
+	r.mu.Lock()
+	if r.sessions[s.sessionKey] == s {
+		delete(r.sessions, s.sessionKey)
+	}
+	r.mu.Unlock()
 }
 
 func (r *Runtime) OpenSession(ctx context.Context, opts OpenOptions) (types.Session, error) {
@@ -158,6 +184,8 @@ func (r *Runtime) OpenSession(ctx context.Context, opts OpenOptions) (types.Sess
 		s.sessionID = explicitSessionID
 	}
 	s.model = selectedModel
+	s.runtime = r
+	r.track(s)
 	go s.consumeMessages()
 	return s, nil
 }
@@ -171,7 +199,24 @@ func appendClaudeDeveloperInstructions(options []claudeagent.Option, developerIn
 	return options
 }
 
-func (r *Runtime) CloseAll() {}
+// CloseAll closes every session this runtime opened, terminating their
+// claude CLI child processes. Idempotent: session.Close is once-guarded and
+// sessions unregister themselves as they close.
+func (r *Runtime) CloseAll() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	sessions := make([]*session, 0, len(r.sessions))
+	for _, s := range r.sessions {
+		sessions = append(sessions, s)
+	}
+	r.sessions = make(map[string]*session)
+	r.mu.Unlock()
+	for _, s := range sessions {
+		_ = s.Close()
+	}
+}
 
 func claudeFirstAvailableModel(client *claudeagent.Client) (string, bool) {
 	if client == nil {
@@ -188,8 +233,9 @@ func claudeFirstAvailableModel(client *claudeagent.Client) (string, bool) {
 }
 
 type session struct {
-	client *claudeagent.Client
-	stream *claudeagent.Stream
+	client  *claudeagent.Client
+	stream  *claudeagent.Stream
+	runtime *Runtime
 
 	mu         sync.RWMutex
 	onUpdate   func(types.Event)
@@ -547,6 +593,7 @@ func (s *session) cancelPendingQuestions(err error) {
 func (s *session) Close() error {
 	var closeErr error
 	s.closeOnce.Do(func() {
+		s.runtime.forget(s)
 		s.cancelPendingQuestions(errors.New("claude session closed"))
 		if s.stream != nil {
 			closeErr = s.stream.Close()

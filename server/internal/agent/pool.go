@@ -500,6 +500,10 @@ func (p *Pool) Context() context.Context {
 func (p *Pool) CloseAll() {
 	p.mu.Lock()
 	p.closed = true
+	entries := make([]*sessionEntry, 0, len(p.sessions))
+	for _, entry := range p.sessions {
+		entries = append(entries, entry)
+	}
 	p.sessions = make(map[string]*sessionEntry)
 	cancel := p.cancel
 	p.cancel = nil
@@ -508,6 +512,13 @@ func (p *Pool) CloseAll() {
 	codexRuntime := p.codex
 	p.mu.Unlock()
 
+	// Close tracked sessions individually before tearing the runtimes down;
+	// dropping the map used to leak their agent child processes.
+	for _, entry := range entries {
+		if entry != nil && entry.session != nil {
+			_ = entry.session.Close()
+		}
+	}
 	if cancel != nil {
 		cancel()
 	}

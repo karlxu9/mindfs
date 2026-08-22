@@ -453,3 +453,54 @@ func TestToolResultUpdateFallsBackToOnlyPendingTool(t *testing.T) {
 		t.Fatalf("content = %#v, want command output", update.Content)
 	}
 }
+
+// The runtime registry is what lets shutdown find live sessions; entries must
+// unregister on Close and CloseAll must be idempotent (R-1.1 / T8).
+func TestRuntimeRegistryTracksAndClosesSessions(t *testing.T) {
+	r := NewRuntime()
+	a := &session{sessionKey: "a", runtime: r}
+	b := &session{sessionKey: "b", runtime: r}
+	r.track(a)
+	r.track(b)
+
+	if err := a.Close(); err != nil {
+		t.Fatalf("close a: %v", err)
+	}
+	r.mu.Lock()
+	if len(r.sessions) != 1 || r.sessions["b"] != b {
+		t.Fatalf("registry after a.Close = %v, want only b", r.sessions)
+	}
+	r.mu.Unlock()
+
+	r.CloseAll()
+	r.mu.Lock()
+	if len(r.sessions) != 0 {
+		t.Fatalf("registry after CloseAll has %d entries", len(r.sessions))
+	}
+	r.mu.Unlock()
+
+	// Idempotence: double CloseAll and closing an already-closed session must
+	// not panic (the SDK close path is once-guarded).
+	r.CloseAll()
+	if err := b.Close(); err != nil {
+		t.Fatalf("second close b: %v", err)
+	}
+}
+
+// A session reopened under the same key must survive its predecessor's Close.
+func TestRuntimeForgetOnlyRemovesItself(t *testing.T) {
+	r := NewRuntime()
+	old := &session{sessionKey: "x", runtime: r}
+	r.track(old)
+	replacement := &session{sessionKey: "x", runtime: r}
+	r.track(replacement)
+
+	if err := old.Close(); err != nil {
+		t.Fatalf("close old: %v", err)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.sessions["x"] != replacement {
+		t.Fatal("predecessor Close evicted the replacement session")
+	}
+}

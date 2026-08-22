@@ -84,3 +84,12 @@
 **执行序与设计 §2.2 表的差异**：实际 LIFO 序为 http → ws → (relay,T10) → kanban → scheduled → prober → pool → app-context；设计表为 … scheduled(4) → pool(5) → appctx(7) → kanban(8) → relay(9)。差异点：kanban 先于 scheduled/pool 关（drain 时 agent 还活着，正确）；appctx 移到最后（比设计表的 7 更安全——kanban(8) drain 中的写库不会撞上已关的句柄）；relay 提前（中继端更早感知下线，符合 §2.3 意图）。依赖关系均满足，表格顺序按实现修正。
 
 **验证记录**：kanban 收敛测试（预置 running + success 两行 → 重开 store → running 变 cancelled 且补 finished_at、success 不受扰）；`AppContext.Close` 测试（真实 session.Manager 开库后 Close，Windows 本机 `os.RemoveAll(metaDir)` 立即成功——正是 DoD 的句柄释放验证）；`scheduled.Stop` 两例（等到 300ms 内完成的 job / 对卡死 job 按 deadline 放弃并报错）。全仓测试绿。端到端：沙箱 `mindfs-server` + CTRL_BREAK，关闭序列 7 步全出现、app-context 殿后、20ms 退出 exit 0。
+
+## T8　agent Pool / claude Runtime 关闭补齐
+
+**实现**（2026-08-22）：
+
+- claude `Runtime` 由空结构体改为持 `map[string]*session` 注册表（对齐 codex 先例，按 sessionKey 登记）：`OpenSession` 成功即 `track`；`session.Close` 的 closeOnce 内 `forget`（带身份校验——同 key 重开的新会话不会被旧会话的 Close 误删）；`CloseAll` 快照后逐个 `session.Close()`（SDK Close 终止 claude CLI 子进程），不改 SDK fork。
+- `Pool.CloseAll`：清 map 前先逐 entry 调 `session.Close()`（旧实现直接丢弃 map，等于泄漏全部 agent 子进程），随后照旧 cancel + 各 runtime CloseAll。幂等性由 session 层 closeOnce 保证，双关无 panic。
+
+**验证记录**：注册表两例单测（track/Close 注销/CloseAll 清空幂等/已关会话再关无 panic；同 key 替换会话不被前任 Close 驱逐）；agent 全部子包 + 全仓测试绿。真实 claude 会话退出后进程消失的验证属手工回归项，并入阶段 2 收尾 checklist（需要真实 agent 会话，不在本机常驻服务上做）。
