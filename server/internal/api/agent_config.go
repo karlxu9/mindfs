@@ -603,7 +603,7 @@ func updateAgentConfigDefaults(agentName string, fileSources []string, envKeys [
 		return err
 	}
 	payload = append(payload, '\n')
-	return apperr.Wrap("write", path, os.WriteFile(path, payload, 0o644))
+	return apperr.Wrap("write", path, configpkg.WriteFileAtomic(path, payload, 0o644))
 }
 
 func updateAgentEnvConfig(agentName string, env map[string]string) error {
@@ -635,7 +635,7 @@ func updateAgentEnvConfig(agentName string, env map[string]string) error {
 		return err
 	}
 	payload = append(payload, '\n')
-	return apperr.Wrap("write", path, os.WriteFile(path, payload, 0o644))
+	return apperr.Wrap("write", path, configpkg.WriteFileAtomic(path, payload, 0o644))
 }
 
 func cloneStringMap(input map[string]string) map[string]string {
@@ -684,7 +684,7 @@ func writeAgentConfigManifest(manifest []agentConfigManifestEntry) error {
 		return err
 	}
 	payload = append(payload, '\n')
-	return apperr.Wrap("write", path, os.WriteFile(path, payload, 0o644))
+	return apperr.Wrap("write", path, configpkg.WriteFileAtomic(path, payload, 0o644))
 }
 
 func readAgentEnvBackups() (map[string][]string, error) {
@@ -726,7 +726,7 @@ func writeAgentEnvBackups(env map[string][]string) error {
 	}
 	payload = append(payload, '\n')
 	// Stores plaintext API keys; keep owner-only like credentials.json (R-3.1).
-	return apperr.Wrap("write", path, os.WriteFile(path, payload, 0o600))
+	return apperr.Wrap("write", path, configpkg.WriteFileAtomic(path, payload, 0o600))
 }
 
 func copyFile(src, dst string) error {

@@ -73,7 +73,7 @@ func (s *CredentialsStore) Save(creds Credentials) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(s.filePath, payload, 0o600); err != nil {
+	if err := configpkg.WriteFileAtomic(s.filePath, payload, 0o600); err != nil {
 		return err
 	}
 	return os.Chmod(s.filePath, 0o600)
@@ -97,7 +97,7 @@ func (s *CredentialsStore) SaveTokenStation(token string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(s.filePath, payload, 0o600); err != nil {
+	if err := configpkg.WriteFileAtomic(s.filePath, payload, 0o600); err != nil {
 		return err
 	}
 	return os.Chmod(s.filePath, 0o600)

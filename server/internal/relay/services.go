@@ -141,7 +141,7 @@ func (s *ServiceStore) saveLocked(services []LocalService) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.filePath, payload, 0o600)
+	return configpkg.WriteFileAtomic(s.filePath, payload, 0o600)
 }
 
 func NormalizeServiceSlug(value string) string {

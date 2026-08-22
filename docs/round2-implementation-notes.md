@@ -45,3 +45,13 @@
 - `AppContext` 增加未导出的 `notifyPayloadOverride` 测试钩子（3 行分流），因 `WebPush`/`Notify` 均为具体类型无法注入假实现；比起用真脚本做异步进程级假 notifier，这个钩子更稳定。
 
 **验证记录**：全仓 `go test ./...` 绿。新增 `notify` 包 builder 字段快照测试（error 全字段 + done/ask_user 状态词不回归）与 `TestBroadcastSessionErrorNotifiesAndExemptsScheduled`（触发 ×2 / 豁免 ×1 三条路径）。真机推送（手机 PWA 收到并点击跳转）属手工回归项，待部署后随阶段验收一起过。
+
+## T12　原子写 helper + 9 处替换【R-1.4】
+
+**实现**（2026-08-22）：
+
+- 新增 `config.WriteFileAtomic(path, data, perm)`（`server/internal/config/atomic.go`）：同目录 CreateTemp → 写入 → chmod → close → rename，语义对齐 `fs.WriteMetaFile`。rename 失败等 10ms 重试一次（**两平台统一**，设计只要求 Windows，但统一重试逻辑更简单且 Unix 上无害、ubuntu CI 也能覆盖重试路径）；重试仍失败则**保留 tmp 文件**（新数据不丢）并在错误信息中点名；写入/chmod 阶段失败则清理 tmp（半截数据无保留价值）。`renameFile` 抽为包变量作为测试注入点。
+- 9 处替换全部完成：`fs/registry.go`、`relay/credentials.go` ×2、`relay/services.go`、`usecase/prompts.go`、`api/agent_config.go` ×4（含 T2 的 agents-env.json，权限 0600 收编进 helper）。5 个文件本就 import configpkg，均为单行平移，调用方的 apperr.Wrap / MkdirAll / Chmod 原样保留。
+- **与设计表格的一处出入**：`relay-services.json` 设计 §3 表格权限列写 0644，但代码现状是 0600——按"不放宽权限"原则保持 0600，表格值疑为笔误，请产品复核。
+
+**验证记录**：helper 4 例单测全过（新写权限位、覆盖旧内容、rename 永久失败时目标保持旧内容且 tmp 保留新数据、瞬时失败重试一次成功）；受影响 5 包 + 全仓 `go test ./...` 绿（含 `fs/registry_test.go` 既有用例）。Windows 本机绿，ubuntu 侧由 CI 矩阵覆盖。

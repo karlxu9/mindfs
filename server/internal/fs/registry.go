@@ -138,7 +138,7 @@ func (r *Registry) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	return apperr.Wrap("write", r.path, os.WriteFile(r.path, payload, 0o644))
+	return apperr.Wrap("write", r.path, configpkg.WriteFileAtomic(r.path, payload, 0o644))
 }
 
 func (r *Registry) List() []RootInfo {

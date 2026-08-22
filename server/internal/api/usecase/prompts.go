@@ -146,7 +146,7 @@ func (s *PromptStore) saveLocked(items []string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.filePath, payload, 0o644)
+	return configpkg.WriteFileAtomic(s.filePath, payload, 0o644)
 }
 
 type SavePromptInput struct {
