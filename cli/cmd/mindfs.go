@@ -600,6 +600,9 @@ func readPIDFile(pidPath string) (int, error) {
 	return pid, nil
 }
 
+// stopWaitBudget covers the server's 10s shutdown budget with headroom.
+const stopWaitBudget = 12 * time.Second
+
 func stopService(addr string, useTLS bool, pidPath string) error {
 	pid, err := resolveServicePID(addr, useTLS, pidPath)
 	if err != nil {
@@ -609,6 +612,15 @@ func stopService(addr string, useTLS bool, pidPath string) error {
 	if err != nil {
 		return err
 	}
+	// On Windows the platform stop path is taskkill /F — a hard kill — so ask
+	// the server to shut itself down over the local API first (R-1.2). Unix
+	// keeps SIGTERM first, which already runs the graceful sequence.
+	if runtime.GOOS == "windows" && requestShutdownViaAPI(addr, useTLS) {
+		if waitForProcessExit(pid, stopWaitBudget) {
+			_ = os.Remove(pidPath)
+			return nil
+		}
+	}
 	if err := stopProcess(proc, pid); err != nil {
 		if errors.Is(err, os.ErrProcessDone) {
 			_ = os.Remove(pidPath)
@@ -616,14 +628,44 @@ func stopService(addr string, useTLS bool, pidPath string) error {
 		}
 		return err
 	}
-	for i := 0; i < 50; i++ {
+	if waitForProcessExit(pid, stopWaitBudget) {
+		_ = os.Remove(pidPath)
+		return nil
+	}
+	return fmt.Errorf("timed out stopping process %d", pid)
+}
+
+func waitForProcessExit(pid int, budget time.Duration) bool {
+	deadline := time.Now().Add(budget)
+	for time.Now().Before(deadline) {
 		if !processExists(pid) {
-			_ = os.Remove(pidPath)
-			return nil
+			return true
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return fmt.Errorf("timed out stopping process %d", pid)
+	return !processExists(pid)
+}
+
+// requestShutdownViaAPI asks the running server to exit gracefully. Returns
+// false when the API is unreachable, unauthorized, or unsupported (older
+// server), in which case the caller falls back to the platform kill path.
+func requestShutdownViaAPI(addr string, useTLS bool) bool {
+	token, err := app.ReadLocalCLIToken(addr)
+	if err != nil {
+		return false
+	}
+	req, err := http.NewRequest(http.MethodPost, addrToURL(addr, "/api/shutdown", useTLS), nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("X-MindFS-Local-CLI-Token", token)
+	client := newHTTPClient(useTLS, 5*time.Second)
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusAccepted
 }
 
 func printVersion() {

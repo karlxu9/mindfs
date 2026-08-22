@@ -108,3 +108,24 @@ func TestShutdownOrchestratorWatchdogForcesExit(t *testing.T) {
 	close(release)
 	orch.run() // drain: wait for the stuck step to finish before test cleanup
 }
+
+// The final action (self-update spawn) must run after every close step and
+// before run() returns, so the process cannot exit with the spawn pending.
+func TestShutdownOrchestratorRunsFinalActionAfterSteps(t *testing.T) {
+	orch := newShutdownOrchestrator()
+	var order []string
+	orch.register("close", func(context.Context) error {
+		order = append(order, "close")
+		return nil
+	})
+	orch.setFinalAction("spawn", func() error {
+		order = append(order, "spawn")
+		return nil
+	})
+
+	orch.run()
+
+	if len(order) != 2 || order[0] != "close" || order[1] != "spawn" {
+		t.Fatalf("execution order = %v, want [close spawn]", order)
+	}
+}

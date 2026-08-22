@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"mindfs/server/internal/e2ee"
 	"mindfs/server/internal/relay"
@@ -251,5 +252,69 @@ func TestPublicRelayStatusRedactsSensitiveRelayFields(t *testing.T) {
 	}
 	if status.PendingCode != "" || status.NodeID != "" || status.NodeURL != "" || status.RelayBaseURL != "" || status.NodeName != "" || status.LastError != "" {
 		t.Fatalf("public status leaked sensitive fields: %+v", status)
+	}
+}
+
+// POST /api/shutdown must be reachable only from loopback with the local CLI
+// token, and must fire the injected shutdown trigger exactly once per
+// accepted call (R-1.2 acceptance 3).
+func TestHandleShutdownAuthzMatrix(t *testing.T) {
+	fired := make(chan struct{}, 1)
+	handler := &HTTPHandler{
+		LocalCLIToken:   "secret-token",
+		RequestShutdown: func() { fired <- struct{}{} },
+	}
+
+	tests := []struct {
+		name       string
+		remoteAddr string
+		token      string
+		wantStatus int
+	}{
+		{name: "missing token", remoteAddr: "127.0.0.1:54321", token: "", wantStatus: http.StatusForbidden},
+		{name: "wrong token", remoteAddr: "127.0.0.1:54321", token: "wrong-token", wantStatus: http.StatusForbidden},
+		{name: "remote origin", remoteAddr: "192.0.2.1:54321", token: "secret-token", wantStatus: http.StatusForbidden},
+		{name: "loopback with token", remoteAddr: "127.0.0.1:54321", token: "secret-token", wantStatus: http.StatusAccepted},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/shutdown", nil)
+			req.RemoteAddr = tt.remoteAddr
+			if tt.token != "" {
+				req.Header.Set(localCLIHeaderName, tt.token)
+			}
+			rec := httptest.NewRecorder()
+			handler.handleShutdown(rec, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			if tt.wantStatus == http.StatusAccepted {
+				select {
+				case <-fired:
+				case <-time.After(2 * time.Second):
+					t.Fatal("RequestShutdown was not invoked")
+				}
+			} else {
+				select {
+				case <-fired:
+					t.Fatal("RequestShutdown fired for a rejected request")
+				case <-time.After(50 * time.Millisecond):
+				}
+			}
+		})
+	}
+}
+
+// Without an injected trigger the endpoint must refuse rather than 202-and-do-
+// nothing.
+func TestHandleShutdownWithoutTriggerReturnsUnavailable(t *testing.T) {
+	handler := &HTTPHandler{LocalCLIToken: "secret-token"}
+	req := httptest.NewRequest(http.MethodPost, "/api/shutdown", nil)
+	req.RemoteAddr = "127.0.0.1:54321"
+	req.Header.Set(localCLIHeaderName, "secret-token")
+	rec := httptest.NewRecorder()
+	handler.handleShutdown(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
 	}
 }

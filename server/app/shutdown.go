@@ -35,6 +35,9 @@ type shutdownOrchestrator struct {
 	steps   []shutdownStep
 	current string
 
+	finalName string
+	finalFn   func() error
+
 	once sync.Once
 	done chan struct{}
 }
@@ -53,6 +56,16 @@ func (o *shutdownOrchestrator) register(name string, fn func(context.Context) er
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.steps = append(o.steps, shutdownStep{name: name, fn: fn})
+}
+
+// setFinalAction sets a function that runs after every close step finished,
+// still under the watchdog. Self-update uses it to spawn the replacement
+// process only once the listener is released and data is flushed — and
+// before run() returns, so the process cannot exit with the spawn pending.
+func (o *shutdownOrchestrator) setFinalAction(name string, fn func() error) {
+	o.mu.Lock()
+	o.finalName, o.finalFn = name, fn
+	o.mu.Unlock()
 }
 
 // run executes the close sequence exactly once; concurrent and repeated calls
@@ -100,6 +113,20 @@ func (o *shutdownOrchestrator) execute() {
 			log.Printf("[shutdown] step=%s err=%v elapsed=%s", step.name, err, time.Since(stepStarted).Round(time.Millisecond))
 		} else {
 			log.Printf("[shutdown] step=%s ok elapsed=%s", step.name, time.Since(stepStarted).Round(time.Millisecond))
+		}
+	}
+	o.mu.Lock()
+	finalName, finalFn := o.finalName, o.finalFn
+	o.mu.Unlock()
+	if finalFn != nil {
+		o.mu.Lock()
+		o.current = finalName
+		o.mu.Unlock()
+		finalStarted := time.Now()
+		if err := runShutdownStep(ctx, shutdownStep{name: finalName, fn: func(context.Context) error { return finalFn() }}); err != nil {
+			log.Printf("[shutdown] final=%s err=%v elapsed=%s", finalName, err, time.Since(finalStarted).Round(time.Millisecond))
+		} else {
+			log.Printf("[shutdown] final=%s ok elapsed=%s", finalName, time.Since(finalStarted).Round(time.Millisecond))
 		}
 	}
 	log.Printf("[shutdown] done elapsed=%s", time.Since(started).Round(time.Millisecond))

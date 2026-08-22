@@ -183,7 +183,17 @@ func Start(ctx context.Context, addr string, opts StartOptions) error {
 		AppContext: services,
 		StaticDir:  resolveStaticDir(),
 		Version:    opts.Version,
+		// Same entry as the signal path: one shutdown sequence, no second
+		// implementation (R-1.2).
+		RequestShutdown: shutdown.run,
 	}
+	// Self-update: run the close sequence, then spawn the replacement while
+	// still inside run(), so Start cannot return (and the process cannot
+	// exit) before the spawn happened (R-1.3).
+	updateSvc.SetRestartHandler(func(spawn func() error) {
+		shutdown.setFinalAction("spawn-replacement", spawn)
+		go shutdown.run()
+	})
 	wsHandler := &api.WSHandler{AppContext: services}
 
 	mux := http.NewServeMux()

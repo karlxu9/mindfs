@@ -45,6 +45,25 @@ type HTTPHandler struct {
 	StaticDir     string
 	Version       string
 	LocalCLIToken string
+	// RequestShutdown triggers the graceful shutdown sequence; injected by
+	// server/app. The /api/shutdown endpoint is unavailable without it.
+	RequestShutdown func()
+}
+
+// handleShutdown lets the local CLI ask the server to exit through the full
+// graceful-shutdown sequence (R-1.2). Loopback + local CLI token only: relay
+// forwarded requests never carry the token, so remote callers are locked out.
+func (h *HTTPHandler) handleShutdown(w http.ResponseWriter, r *http.Request) {
+	if !h.isLocalCLIRequest(r) {
+		respondError(w, http.StatusForbidden, errors.New("local cli token required"))
+		return
+	}
+	if h.RequestShutdown == nil {
+		respondError(w, http.StatusServiceUnavailable, errors.New("shutdown not available"))
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+	go h.RequestShutdown()
 }
 
 type protectedResponseWriter struct {
@@ -236,7 +255,7 @@ func isLocalCLIPath(r *http.Request) bool {
 	}
 	switch r.Method {
 	case http.MethodPost:
-		return r.URL.Path == "/api/dirs" || r.URL.Path == "/api/relay/bind/start" || isLocalCLITaskPath(r.URL.Path)
+		return r.URL.Path == "/api/dirs" || r.URL.Path == "/api/relay/bind/start" || r.URL.Path == "/api/shutdown" || isLocalCLITaskPath(r.URL.Path)
 	case http.MethodDelete:
 		return r.URL.Path == "/api/dirs"
 	case http.MethodGet:
@@ -280,6 +299,7 @@ func (h *HTTPHandler) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/", h.handleFrontend)
 	r.Get("/health", h.handleHealth)
+	r.Post("/api/shutdown", h.handleShutdown)
 	r.Get("/api/tree", h.protectedEndpoint(h.handleTree))
 	r.Get("/api/file", h.handleFile)
 	r.Get("/api/git/status", h.protectedEndpoint(h.handleGitStatus))

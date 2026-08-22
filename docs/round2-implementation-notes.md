@@ -108,3 +108,17 @@
 **实现**（2026-08-22）：`Manager.Stop()`——取出并清空内部 `cancel` 后调用（nil-safe、幂等）；`service.Run` 对 ctx 取消的既有 defer 链（`muxSession.Close()` + `conn.Close()`）随即主动关闭 yamux 会话与 WS 长连，中继端立即感知下线而非等 keep-alive 超时，无需新增关闭代码。编排器注册 `relay` 步骤（relayMgr.Start 之后，LIFO 中在 ws-clients 之后、kanban 之前执行——比设计表的"最后关"更早，中继端更早感知，符合 §2.3 意图）。TipsService 仍挂 root ctx 自停。
 
 **验证记录**：新增自包含的 Stop 单测（未启动安全、幂等、真实 cancel 传递、nil receiver），刻意不依赖包内执行顺序（fork-plan 阶段 0.5 已记录该包上游测试的顺序敏感缺陷）；relay 包全量 + 全仓测试绿。"中继端立即感知下线"的实机观察（relay 面板节点状态）并入阶段 2 收尾 checklist。
+
+## T11　Windows 关机端点 + CLI 接入 + 自更新走退出链【R-1.2 / R-1.3】
+
+**实现**（2026-08-22）：
+
+- `POST /api/shutdown`：handler 在 api 包（`HTTPHandler.RequestShutdown` 回调由 server/app 注入 `shutdown.run`，与信号路径同一入口）；鉴权复用 `isLocalCLIRequest`（token 恒等比较 + loopback 来源 + 路径白名单，白名单追加该路径）；校验通过 202 后异步触发编排。未注入回调时返回 503 而非假 202。
+- CLI `stopService`：**Windows** 上先读本地 token 调关机 API、等进程消失（预算 12s 覆盖 10s 关闭预算），API 不可达/无 token/非 202 一律 fail-closed 回退既有 `taskkill /T /F` 路径；**Unix** 保持 SIGTERM 优先（本就是优雅路径），等待同样放宽到 12s。
+- 自更新时序反转（R-1.3）：`restartInstalledBinary` 不再 spawn-后-`os.Exit(0)`，改为调用注入的 `restartHandler(spawn)`；server/app 实现为 `setFinalAction("spawn-replacement", spawn) + go shutdown.run()`——spawn 作为编排器的 **final action** 在全部关闭步骤完成后、`run()` 返回前执行（仍受 10s 看门狗约束），主 goroutine 等待同一次 run，进程绝不会在 spawn 前退出。handler 未注入时报错 "restart handler not configured" 而非静默旧行为。**时序死锁规避**：restartHandler 用 `go shutdown.run()` 异步触发——若同步执行，触发更新的 HTTP 请求 handler 会与 http.Shutdown 互等。
+
+**验证记录**：
+
+- 鉴权矩阵单测 4 例（无 token / 错 token / 非 loopback 各 403 且不触发回调；loopback+token 202 且回调恰好触发一次）+ 未注入回调 503；编排器 finalAction 顺序测试（close → spawn，run 返回前完成）；CLI `requestShutdownViaAPI` fail-closed 测试（无 token / 无监听均 false，隔离配置目录）。全仓 `go test ./...` 绿。
+- 端到端（沙箱实例 + 真实 token + curl）：403/403/202 矩阵全对，202 后完整 9 步关闭序列（http-server → ws-clients → relay → kanban → scheduled → agent-prober → agent-pool → command-shells → app-context），62ms 退出 exit 0。
+- **待手工回归**（阶段 2 收尾 checklist，需在真实安装环境执行）：R-1.2 验收②（服务挂死时 `-stop` 超时回退 taskkill）；R-1.3 验收①②（Windows + Unix 各真实走一次 Web 触发更新，验证会话数据与 registry.json 无损）；反复 `-restart` 20 次的 R-1.1 验收⑤。

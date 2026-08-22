@@ -57,6 +57,19 @@ type Service struct {
 	mu        sync.RWMutex
 	status    Status
 	listeners []func(Status)
+
+	// restartHandler runs the graceful shutdown and then the given spawn
+	// action; injected by server/app so this package never exits the process
+	// itself (R-1.3).
+	restartHandler func(spawn func() error)
+}
+
+// SetRestartHandler injects the shutdown-then-spawn sequence used when a
+// downloaded update replaces the running binary.
+func (s *Service) SetRestartHandler(handler func(spawn func() error)) {
+	s.mu.Lock()
+	s.restartHandler = handler
+	s.mu.Unlock()
 }
 
 type latestRelease struct {
@@ -760,14 +773,19 @@ func (s *Service) restartInstalledBinary(pkgDir string) error {
 		binName = "mindfs.exe"
 	}
 	dstBin, dstAgents, dstTaskTemplate, dstWeb := layout.destinationPaths(binName)
-	log.Printf("[update] restart.begin exe=%s args=%q", exe, s.args)
-	if err := startReplacementProcess(os.Getpid(), exe, s.args, os.Stdout, os.Stderr, pkgDir, dstBin, dstAgents, dstTaskTemplate, dstWeb); err != nil {
-		return err
+	s.mu.RLock()
+	handler := s.restartHandler
+	s.mu.RUnlock()
+	if handler == nil {
+		return errors.New("restart handler not configured")
 	}
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		os.Exit(0)
-	}()
+	log.Printf("[update] restart.begin exe=%s args=%q", exe, s.args)
+	// Shutdown first, spawn second (R-1.3): the handler runs the orchestrated
+	// close so the listener is free and data is flushed before the
+	// replacement starts, then spawns it before the process may exit.
+	handler(func() error {
+		return startReplacementProcess(os.Getpid(), exe, s.args, os.Stdout, os.Stderr, pkgDir, dstBin, dstAgents, dstTaskTemplate, dstWeb)
+	})
 	return nil
 }
 
