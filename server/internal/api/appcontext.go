@@ -668,6 +668,46 @@ func (s *AppContext) ExportBackup(ctx context.Context, w io.Writer, input backup
 	return exporter.Export(ctx, w, input)
 }
 
+func (s *AppContext) storageRootAndKeys(ctx context.Context, rootID string) (fs.RootInfo, map[string]bool, error) {
+	root, err := s.GetRoot(rootID)
+	if err != nil {
+		return fs.RootInfo{}, nil, err
+	}
+	manager, err := s.GetSessionManager(rootID)
+	if err != nil {
+		return fs.RootInfo{}, nil, err
+	}
+	metas, err := manager.ListMetas(ctx)
+	if err != nil {
+		return fs.RootInfo{}, nil, err
+	}
+	keys := make(map[string]bool, len(metas))
+	for _, meta := range metas {
+		if meta != nil && strings.TrimSpace(meta.Key) != "" {
+			keys[meta.Key] = true
+		}
+	}
+	return root, keys, nil
+}
+
+// StorageReport / StorageCleanup satisfy the usecase layer's optional
+// storageInspector interface (R-5.3).
+func (s *AppContext) StorageReport(ctx context.Context, rootID string) (backup.StorageReport, error) {
+	root, keys, err := s.storageRootAndKeys(ctx, rootID)
+	if err != nil {
+		return backup.StorageReport{}, err
+	}
+	return backup.BuildStorageReport(ctx, root, keys)
+}
+
+func (s *AppContext) StorageCleanup(ctx context.Context, rootID string) (backup.CleanupResult, error) {
+	root, keys, err := s.storageRootAndKeys(ctx, rootID)
+	if err != nil {
+		return backup.CleanupResult{}, err
+	}
+	return backup.CleanupStorage(ctx, root, keys)
+}
+
 // Close releases every root's lazily-created resources (file watcher and
 // session-manager sqlite handle). It is the full-shutdown counterpart of
 // ReleaseRootResources and must run after everything that writes through

@@ -175,3 +175,12 @@
 - backup 包 6 例单测：project 布局（快照替换/jsonl 保留/journal 排除/history 标注/manifest 字段）、.link 兜底布局（fallback-db 归档 + 指针保留 + has_fallback_db）、快照失败降级、凭据开关双向断言（7 项凭据 + 日志/pid 永不入包）、scope=root 选择与非法参数。全仓测试绿。
 - **R-5.2 恢复验证（发布硬门槛）已完成**：沙箱构造三 root（project / home / .link 兜底）各 3 会话 → 起服务经 API 导出（HTTP 200，包 25 项结构与设计一致）→ 删除全部现场数据（appdata、.mindfs、home meta、兜底 db）→ 按 `RESTORE.md` 步骤恢复（兜底 root 用"转常规布局"方式）→ 重新起服务：三 root 的会话列表（9/9）与会话正文（逐 root 抽查 exchange 内容）全部可见。验证脚手架（seed 程序）用后已删除。
 - 导出期间并发写入的正确性由 T16 的快照竞态测试覆盖。
+
+## T18　存储体检与清理端点【R-5.3】
+
+**实现**（2026-08-22）：
+
+- backup 包新文件 `storage.go`：`BuildStorageReport` 遍历 root 元数据目录，按类归集（exchange/aux/debug jsonl、db、`upload/`），孤儿判定 = `sessions/<key>.debug.jsonl` 的 key 不在 sessions 表（活跃 keys 由调用方传入）；`-journal`/`-wal` 收进 `journal_files`。`CleanupStorage` 重算孤儿清单（不信任客户端传参）后仅删孤儿 debug；journal 走**安全回收**——对所属 DB `sql.Open` + 一条 `PRAGMA schema_version` 触发 sqlite 自身的崩溃恢复（回滚/丢弃 journal），回收后仍存在的进 `remaining_journals` 保留并提示，绝不直接删文件。
+- 接线：`AppContext.StorageReport/StorageCleanup`（活跃 keys 经 `ListMetas`）+ usecase `storageInspector` 可选接口 + `GET /api/storage/report` / `POST /api/storage/cleanup` 两条 protectedEndpoint 路由（JSON 响应，正常走加密封装）。
+
+**验证记录**：报表测试逐字节与写入量对账（五类各一文件 + 活跃/孤儿 debug 各一 + journal），活跃 key 的 debug 不误报孤儿；清理测试用真实 sqlite（3 行数据）+ 伪造 journal——sqlite 打开时自动丢弃无效 journal（先以独立程序实验确认该行为），断言 journal 消失、3 行数据完好、活跃 debug 未被误删、孤儿被清。全仓测试绿。

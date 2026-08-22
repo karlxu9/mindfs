@@ -71,3 +71,34 @@ func (h *HTTPHandler) handleBackupExport(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+
+// handleStorageReport serves the per-root storage checkup (R-5.3). Walking
+// the metadata directory may take a second on large roots; the handler runs
+// per-request so other requests are not blocked (N-4).
+func (h *HTTPHandler) handleStorageReport(w http.ResponseWriter, r *http.Request) {
+	rootID := strings.TrimSpace(r.URL.Query().Get("root"))
+	if rootID == "" {
+		respondError(w, http.StatusBadRequest, errors.New("root required"))
+		return
+	}
+	report, err := h.service().StorageReport(r.Context(), rootID)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, report)
+}
+
+func (h *HTTPHandler) handleStorageCleanup(w http.ResponseWriter, r *http.Request) {
+	rootID := strings.TrimSpace(r.URL.Query().Get("root"))
+	if rootID == "" {
+		respondError(w, http.StatusBadRequest, errors.New("root required"))
+		return
+	}
+	result, err := h.service().StorageCleanup(r.Context(), rootID)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, result)
+}
