@@ -68,6 +68,25 @@ func CloseSession(rootID, sessionKey string) {
 	defaultLongShells.closeSession(rootID, sessionKey)
 }
 
+// CloseAllSessions terminates every long-lived shell session and its process
+// tree. Shutdown-path counterpart of CloseSession; safe to call repeatedly.
+func CloseAllSessions() {
+	defaultLongShells.closeAll()
+}
+
+func (m *longShellManager) closeAll() {
+	m.mu.Lock()
+	sessions := make([]*longShellSession, 0, len(m.sessions))
+	for key, sess := range m.sessions {
+		sessions = append(sessions, sess)
+		delete(m.sessions, key)
+	}
+	m.mu.Unlock()
+	for _, sess := range sessions {
+		_ = sess.killShell()
+	}
+}
+
 func longShellKey(rootID, sessionKey, shell string) string {
 	return strings.TrimSpace(rootID) + "::" + strings.TrimSpace(sessionKey) + "::" + strings.TrimSpace(shell)
 }

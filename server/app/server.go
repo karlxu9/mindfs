@@ -16,6 +16,7 @@ import (
 
 	"mindfs/server/internal/agent"
 	"mindfs/server/internal/api"
+	"mindfs/server/internal/commandexec"
 	"mindfs/server/internal/e2ee"
 	"mindfs/server/internal/fs"
 	"mindfs/server/internal/githubimport"
@@ -108,6 +109,12 @@ func Start(ctx context.Context, addr string, opts StartOptions) error {
 	if relayBaseURL == "" {
 		relayBaseURL = agentConfig.RelayBaseURL
 	}
+	// Long-lived shells are package-global in commandexec; close them after
+	// the agent pool (agents may still drive a shell while closing).
+	shutdown.register("command-shells", func(context.Context) error {
+		commandexec.CloseAllSessions()
+		return nil
+	})
 	agentPool := agent.NewPool(agentConfig)
 	shutdown.register("agent-pool", func(context.Context) error {
 		agentPool.CloseAll()

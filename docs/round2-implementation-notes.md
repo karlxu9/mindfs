@@ -93,3 +93,12 @@
 - `Pool.CloseAll`：清 map 前先逐 entry 调 `session.Close()`（旧实现直接丢弃 map，等于泄漏全部 agent 子进程），随后照旧 cancel + 各 runtime CloseAll。幂等性由 session 层 closeOnce 保证，双关无 panic。
 
 **验证记录**：注册表两例单测（track/Close 注销/CloseAll 清空幂等/已关会话再关无 panic；同 key 替换会话不被前任 Close 驱逐）；agent 全部子包 + 全仓测试绿。真实 claude 会话退出后进程消失的验证属手工回归项，并入阶段 2 收尾 checklist（需要真实 agent 会话，不在本机常驻服务上做）。
+
+## T9　commandexec 全局关闭 + Windows 进程树修正
+
+**实现**（2026-08-22）：
+
+- `commandexec.CloseAllSessions()`：快照全部长驻 shell 会话、清 map、逐个 `killShell()`（内部 `proc.KillTree()`，Windows 实现本就是 `taskkill /T /F`，无需改）；编排器注册 `command-shells` 于 agent-pool 之前（LIFO 执行序 pool 先、shells 后，agent 关闭中还可能驱动 shell）。ctx 传递链不动（设计 §2.3 既定取舍）。
+- `acp/process_windows.go` 的 `killProcessTree`：由名不符实的 `proc.Kill()`（只杀直接子进程）改为 `taskkill /PID <pid> /T /F`（对齐 commandexec 的 Windows KillTree），失败回退 `proc.Kill()`。
+
+**验证记录**：commandexec 全局关闭单测（fake Process：两会话各 KillTree 恰一次、map 清空、二次调用幂等 + 空注册表 no-op）；新增 Windows 真实进程树测试 `TestKillProcessTreeKillsGrandchildren`（cmd.exe 拉起 ping 子进程 → killProcessTree → 轮询断言孙进程全部消失），本机 Windows 真实通过（0.8s），该文件按 `_windows_test.go` 命名仅在 Windows CI 编译执行。全仓测试绿。
