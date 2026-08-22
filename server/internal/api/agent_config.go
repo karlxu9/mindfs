@@ -725,7 +725,8 @@ func writeAgentEnvBackups(env map[string][]string) error {
 		return err
 	}
 	payload = append(payload, '\n')
-	return apperr.Wrap("write", path, os.WriteFile(path, payload, 0o644))
+	// Stores plaintext API keys; keep owner-only like credentials.json (R-3.1).
+	return apperr.Wrap("write", path, os.WriteFile(path, payload, 0o600))
 }
 
 func copyFile(src, dst string) error {

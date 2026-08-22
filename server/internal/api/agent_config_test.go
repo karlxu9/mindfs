@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"mindfs/server/internal/agent"
@@ -90,5 +91,29 @@ func writeJSON(t *testing.T, path string, value any) {
 	payload = append(payload, '\n')
 	if err := os.WriteFile(path, payload, 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func TestWriteAgentEnvBackupsOwnerOnlyPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission bits are not meaningful on windows")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	if err := writeAgentEnvBackups(map[string][]string{"codex": {"OPENAI_API_KEY=secret"}}); err != nil {
+		t.Fatalf("writeAgentEnvBackups: %v", err)
+	}
+	path, err := agentEnvPath()
+	if err != nil {
+		t.Fatalf("agentEnvPath: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("agents-env.json permissions = %o, want 600", got)
 	}
 }

@@ -19,3 +19,11 @@
   3. report fatal 后出现持久提示，9 秒不消失（对照 warning 3 秒自动消失），✕ 手动关闭生效。
 
 **实现发现（对后续任务有用）**：React 18 开发模式对渲染期错误会同步重试一次，只抛一次的"瞬时"错误会被当作 recoverable error 吞掉、不触发 ErrorBoundary；人为验证挂钩必须在解除前持续抛错。
+
+## T2　`agents-env.json` 权限收紧【R-3.1】
+
+**实现**（2026-08-22）：`agent_config.go` 的 `writeAgentEnvBackups` 写入权限 0644 → 0600（该文件其余三处 0644 写入点属 T12 原子写收编范围，本任务不动）。新增 `TestWriteAgentEnvBackupsOwnerOnlyPermissions`，`runtime.GOOS == "windows"` 时跳过。
+
+**验证记录**：`go build ./...` 绿；api 包全量测试绿（含既有备份/切换用例）；本机（Windows）确认新测试正确 SKIP，Unix 分支由 CI ubuntu runner 覆盖。
+
+**边界说明**：`os.WriteFile` 的权限位只对**新建**文件生效，升级用户既有的 0644 文件重写后权限不变。PRD 验收口径即"新写入的文件"，故未额外 chmod；T12 的临时文件 + rename 方案落地后，旧文件会被新建文件替换，权限残留自然消除。
