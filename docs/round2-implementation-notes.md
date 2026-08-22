@@ -33,3 +33,15 @@
 **实现**（2026-08-22）：`session/manager.go` 的 `deleteSessionUnsafe` 文件删除清单补第三项。debug 路径按本包既有模式落地：`debugFileTpl` 常量 + `debugPath(key)` 方法（含与 exchange/aux 相同的 key 校验），常量旁注释指向写入方 `agent/logs` 的 `toolCallDebugFileTpl`，防两处漂移。单删、批量删、级联删三条路径均收敛于 `deleteSessionUnsafe`（`usecase.DeleteSession` → `DeleteSessions` → `manager.Delete`），一处修复全覆盖。
 
 **验证记录**：`go build ./...` 绿；session 与 usecase 两包全量测试绿。新增 `TestDeleteSessionRemovesAllSessionFiles`（三文件删净 + 无文件会话删除不报错）与 `TestDeleteSessionsCascadeRemovesDebugLogs`（级联删除连未点名的子会话 debug 文件一并清掉）。
+
+## T4　`session.error` 通知【R-2.3】
+
+**实现**（2026-08-22）：
+
+- `notify` 包：error payload 实现为 `BuildSessionPayload` 的 `session.error` 分支（状态词"出错"、tag 带 eventID 后缀与 done 同款、Renotify true），而非独立 builder 函数——三种 session 通知结构完全一致，独立函数是 30 行重复。开发文档写的是"新增 error payload builder"，此处按零重复原则落地，语义等价。
+- `BroadcastSessionError` 增加 `requestID` 参数（对齐 `BroadcastSessionDone`）：ws 路径传真实 requestID，kanban 路径传空串，scheduled 路径传 `scheduled:<taskID>`；`scheduled.SessionActivityBroadcaster` 接口同步改签名（该包无测试 fake，牵连面即三个调用点）。
+- 新增 `notifySessionError`：`scheduled:` 前缀直接豁免（定时任务已有 `scheduled.failed`，避免双推）；eventID 取 requestID，空时回落 `session.error:<root>:<session>:<pending.UpdatedAt>`（与 `notifySessionDone` 同口径）。
+- **有意的行为**：error 与同轮 done 共用 requestID 作为 eventID，error 先发出后，同轮的 `session.done` 通知会被两通道各自的 30 分钟去重窗口抑制——失败的轮次用户只收到一条"出错"，不会再收一条"完成"。
+- `AppContext` 增加未导出的 `notifyPayloadOverride` 测试钩子（3 行分流），因 `WebPush`/`Notify` 均为具体类型无法注入假实现；比起用真脚本做异步进程级假 notifier，这个钩子更稳定。
+
+**验证记录**：全仓 `go test ./...` 绿。新增 `notify` 包 builder 字段快照测试（error 全字段 + done/ask_user 状态词不回归）与 `TestBroadcastSessionErrorNotifiesAndExemptsScheduled`（触发 ×2 / 豁免 ×1 三条路径）。真机推送（手机 PWA 收到并点击跳转）属手工回归项，待部署后随阶段验收一起过。

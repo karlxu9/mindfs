@@ -30,7 +30,7 @@ type SessionActivityBroadcaster interface {
 	BroadcastSessionUserMessage(rootID, sessionKey, sessionType, sessionName, agentName, model, mode, effort, fastService string, planMode bool, content string)
 	BroadcastSessionUserMessageAt(rootID, sessionKey, sessionType, sessionName, agentName, model, mode, effort, fastService string, planMode bool, content string, timestamp time.Time, baseExchangeSeq ...int)
 	BroadcastSessionUpdate(rootID, sessionKey string, update agenttypes.Event)
-	BroadcastSessionError(rootID, sessionKey, message string)
+	BroadcastSessionError(rootID, sessionKey, message, requestID string)
 	BroadcastSessionDone(rootID, sessionKey, requestID string)
 	BroadcastAgentStatusChanged(agentName string)
 	BroadcastScheduledTaskDone(rootID, taskID, taskName, sessionKey, summary string)
@@ -517,7 +517,7 @@ func (s *Service) runTask(ctx context.Context, task Task, force bool) error {
 	})
 	now := time.Now().UTC()
 	if err != nil {
-		broadcaster.BroadcastSessionError(current.RootID, sessionKey, err.Error())
+		broadcaster.BroadcastSessionError(current.RootID, sessionKey, err.Error(), "scheduled:"+current.ID)
 		broadcaster.BroadcastSessionDone(current.RootID, sessionKey, "scheduled:"+current.ID)
 		broadcaster.BroadcastScheduledTaskFailed(current.RootID, current.ID, current.Name, sessionKey, err.Error())
 		_ = s.updateTask(current.RootID, current.ID, func(t *Task) {

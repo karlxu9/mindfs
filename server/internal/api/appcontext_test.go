@@ -3,10 +3,12 @@ package api
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"mindfs/server/internal/fs"
+	"mindfs/server/internal/notify"
 )
 
 func TestNextSessionWorktreeNameUsesDateAndNextSequence(t *testing.T) {
@@ -80,5 +82,47 @@ func TestGetRootContextRemovesDeletedManagedDirWithoutRecreatingIt(t *testing.T)
 	}
 	if _, err := os.Stat(projectPath); !os.IsNotExist(err) {
 		t.Fatalf("deleted project was recreated or stat failed unexpectedly: %v", err)
+	}
+}
+
+// BroadcastSessionError must fan out a session.error notification for normal
+// runs and stay silent for scheduled runs, which already push scheduled.failed
+// (R-2.3).
+func TestBroadcastSessionErrorNotifiesAndExemptsScheduled(t *testing.T) {
+	var gotEventIDs []string
+	var gotPayloads []notify.Payload
+	app := &AppContext{notifyPayloadOverride: func(eventID string, payload notify.Payload) {
+		gotEventIDs = append(gotEventIDs, eventID)
+		gotPayloads = append(gotPayloads, payload)
+	}}
+
+	app.BroadcastSessionError("root1", "sess1", "boom", "req-42")
+	if len(gotPayloads) != 1 {
+		t.Fatalf("notifications after user-run error = %d, want 1", len(gotPayloads))
+	}
+	if gotEventIDs[0] != "req-42" {
+		t.Fatalf("eventID = %q, want req-42", gotEventIDs[0])
+	}
+	if gotPayloads[0].Type != "session.error" {
+		t.Fatalf("payload type = %q, want session.error", gotPayloads[0].Type)
+	}
+	if gotPayloads[0].Body != "boom" {
+		t.Fatalf("payload body = %q, want boom", gotPayloads[0].Body)
+	}
+
+	// Empty request IDs (e.g. kanban stage runs) still notify, with a stable
+	// fallback event ID.
+	app.BroadcastSessionError("root1", "sess1", "boom", "")
+	if len(gotPayloads) != 2 {
+		t.Fatalf("notifications after kanban-run error = %d, want 2", len(gotPayloads))
+	}
+	if !strings.HasPrefix(gotEventIDs[1], "session.error:root1:sess1:") {
+		t.Fatalf("fallback eventID = %q", gotEventIDs[1])
+	}
+
+	// Scheduled runs are exempt: scheduled.failed already covers them.
+	app.BroadcastSessionError("root1", "sess1", "boom", "scheduled:task-1")
+	if len(gotPayloads) != 2 {
+		t.Fatalf("notifications after scheduled error = %d, want 2 (exempt)", len(gotPayloads))
 	}
 }

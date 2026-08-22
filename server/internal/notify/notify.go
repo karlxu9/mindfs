@@ -49,8 +49,11 @@ func BuildSessionPayload(in SessionNotification) Payload {
 		kind = "session.done"
 	}
 	status := "完成"
-	if kind == "session.ask_user" {
+	switch kind {
+	case "session.ask_user":
 		status = "需要输入"
+	case "session.error":
+		status = "出错"
 	}
 	root := firstNonEmpty(in.RootTitle, in.RootID, "MindFS")
 	sessionTitle := firstNonEmpty(in.SessionTitle, "会话")
@@ -58,7 +61,7 @@ func BuildSessionPayload(in SessionNotification) Payload {
 	body := truncateRunes(strings.TrimSpace(in.Summary), BodyMaxRunes)
 	tag := fmt.Sprintf("mindfs:%s:%s:%s", kind, in.RootID, in.SessionKey)
 	eventID := firstNonEmpty(in.EventID, tag)
-	if kind == "session.done" {
+	if kind == "session.done" || kind == "session.error" {
 		tag = fmt.Sprintf("mindfs:%s:%s:%s:%s", kind, in.RootID, in.SessionKey, eventID)
 	}
 	return Payload{
@@ -69,7 +72,7 @@ func BuildSessionPayload(in SessionNotification) Payload {
 		URL:                sessionURL(in.RootID, in.SessionKey),
 		Icon:               "./pwa-192.png",
 		Badge:              "./pwa-192.png",
-		Renotify:           kind == "session.ask_user" || kind == "session.done",
+		Renotify:           kind == "session.ask_user" || kind == "session.done" || kind == "session.error",
 		RequireInteraction: kind == "session.ask_user",
 		Data: map[string]any{
 			"type":       kind,

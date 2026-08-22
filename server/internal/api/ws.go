@@ -948,7 +948,7 @@ func (h *WSHandler) runSessionMessage(job sessionMessageJob) {
 	})
 	if err != nil {
 		log.Printf("[ws] session.message.error root=%s session=%s request=%s err=%v", rootID, key, requestID, err)
-		h.AppContext.BroadcastSessionError(rootID, key, err.Error())
+		h.AppContext.BroadcastSessionError(rootID, key, err.Error(), requestID)
 	}
 	if ok := updateTracker.WaitIdle(msgCtx, sessionDoneSettleWindow, sessionDoneMaxWait); !ok {
 		log.Printf("[ws] session.done.wait_timeout root=%s session=%s request=%s", rootID, key, requestID)

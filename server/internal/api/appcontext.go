@@ -62,6 +62,9 @@ type AppContext struct {
 	streamHub                *StreamHub
 	candidateRegistry        *usecase.CandidateRegistry
 	externalImporters        map[string]agenttypes.ExternalSessionImporter
+
+	// notifyPayloadOverride replaces the notification fan-out in tests.
+	notifyPayloadOverride func(eventID string, payload notify.Payload)
 }
 
 func (s *AppContext) GetRootContext(rootID string) (*RootContext, error) {
@@ -361,7 +364,7 @@ func (s *AppContext) RunAgentStage(ctx context.Context, exec kanban.AgentStageEx
 		},
 	})
 	if err != nil {
-		s.BroadcastSessionError(exec.RootID, sessionKey, err.Error())
+		s.BroadcastSessionError(exec.RootID, sessionKey, err.Error(), "")
 	}
 	if ok := updateTracker.WaitIdle(ctx, sessionDoneSettleWindow, sessionDoneMaxWait); !ok {
 		log.Printf("[kanban] session.done.wait_timeout root=%s session=%s task=%s", exec.RootID, sessionKey, exec.Task.ID)
@@ -879,12 +882,45 @@ func (s *AppContext) BroadcastSessionUpdate(rootID, sessionKey string, update ag
 	s.GetSessionStreamHub().BroadcastSessionStream(rootID, sessionKey, event)
 }
 
-func (s *AppContext) BroadcastSessionError(rootID, sessionKey, message string) {
+func (s *AppContext) BroadcastSessionError(rootID, sessionKey, message, requestID string) {
 	s.UpdateTaskSessionErrorForSession(rootID, sessionKey, message)
+	normalized := normalizeAgentErrorMessage(errors.New(message))
+	s.notifySessionError(rootID, sessionKey, normalized, requestID)
 	s.GetSessionStreamHub().BroadcastSessionStream(rootID, sessionKey, &StreamEvent{
 		Type: "error",
-		Data: map[string]string{"message": normalizeAgentErrorMessage(errors.New(message))},
+		Data: map[string]string{"message": normalized},
 	})
+}
+
+func (s *AppContext) notifySessionError(rootID, sessionKey, message, requestID string) {
+	if s == nil {
+		return
+	}
+	// Scheduled runs already push scheduled.failed; a second session.error
+	// notification for the same failure would be noise (same rule as
+	// notifySessionDone).
+	if strings.HasPrefix(strings.TrimSpace(requestID), "scheduled:") {
+		return
+	}
+	pending := s.GetSessionStreamHub().PendingSessionSnapshot(sessionKey)
+	sessionTitle := strings.TrimSpace(pending.SessionTitle)
+	if sessionTitle == "" {
+		sessionTitle = s.sessionTitle(rootID, sessionKey)
+	}
+	eventID := strings.TrimSpace(requestID)
+	if eventID == "" {
+		eventID = "session.error:" + rootID + ":" + sessionKey + ":" + pending.UpdatedAt.Format(time.RFC3339Nano)
+	}
+	payload := notify.BuildSessionPayload(notify.SessionNotification{
+		Type:         "session.error",
+		RootID:       rootID,
+		RootTitle:    s.rootTitle(rootID),
+		SessionKey:   sessionKey,
+		SessionTitle: sessionTitle,
+		Summary:      message,
+		EventID:      eventID,
+	})
+	s.notifyPayload(context.Background(), eventID, payload)
 }
 
 func (s *AppContext) ClearTaskAuxFlagsForSession(rootID, sessionKey string) {
@@ -1065,6 +1101,10 @@ func (s *AppContext) notifyScheduled(rootID, taskID, taskName, sessionKey, summa
 
 func (s *AppContext) notifyPayload(ctx context.Context, eventID string, payload notify.Payload) {
 	if s == nil {
+		return
+	}
+	if s.notifyPayloadOverride != nil {
+		s.notifyPayloadOverride(eventID, payload)
 		return
 	}
 	if s.WebPush != nil && s.WebPush.Enabled() {
