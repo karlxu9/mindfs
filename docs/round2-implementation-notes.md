@@ -144,3 +144,14 @@
 - 两端点走既有 `protectedEndpoint` 会话鉴权（Relay 天然可用）；`HTTPHandler` 增 `StartedAt/Addr/LogPath` 字段由 server/app 注入，`StartOptions.LogPath` 从 CLI 传入——裸 `mindfs-server`（stdout 模式）无日志文件，`/api/logs` 返回 404 说明而非假数据。
 
 **验证记录**：尾部读取 5 例单测（空文件、取尾窗口、跨 64KB 块边界、64KB 单行截断、lines 钳制）+ diagnostics 字段快照 + 无日志路径 404。端到端（沙箱 daemon 实例）：两端点真实返回，字段与设计一致，diagnostics 延迟 59ms（< 500ms 预算）。全仓测试绿。
+
+## T15　前端诊断面板【R-4.2 / R-4.3 前端】
+
+**实现**（2026-08-22）：
+
+- 新服务 `web/src/services/diagnostics.ts`：类型镜像后端 payload；`fetchDiagnostics` / `fetchLogTail` 走 `protectedJSON`（Relay 天然可用）；纯逻辑函数（`clampLogLines` 对齐后端钳制、`normalizeLogTail` 防御性解析、`formatUptime` / `formatBytes`）可进 vm 沙箱测试。
+- 新组件 `web/src/components/DiagnosticsPanel.tsx`：遮罩 + 居中面板（`min(760px,100%)` 自适应移动端），三分区——状态总览（版本/时长/系统/地址/推送/中继/定时/托管目录/Agent 探测）、日志尾部（等宽 `pre` + `overflowX` 横向滚动防破版 + 截断标记）、存储与备份**占位**（T19 填充）；顶部刷新按钮复用同一 refresh。日志请求单独 catch——无日志文件的实例仍显示状态总览。
+- 接线：`FileTree` 加 `onOpenDiagnostics` prop + 菜单项（Web Push 通知项后、分隔线前，activity 图标）；`App.tsx` 仅 4 行（import / state / prop / 挂载点）。i18n 双语 34 词条。
+- **容器选择**：设计提到"BottomSheet/对话框复用现有容器"，实际用了轻量遮罩面板而非 BottomSheet——BottomSheet 与会话抽屉状态机耦合（isDrawerOpen/interactionMode），复用它需要接入抽屉状态管理，反而更重；遮罩面板在两档宽度自适应，行为等价。
+
+**验证记录**：vm 沙箱测试 `diagnostics.test.mjs`（钳制/解析/格式化 17 断言，vm 跨 context 对象用 JSON round-trip 规避原型不等）；typecheck + 全部 web 测试绿。UI 真实验证（vite dev 代理到含新端点的沙箱后端 + Chrome）：桌面 1280px 与移动 390px 两档截图（`verify-t15/`，未入库），菜单项入口、三分区、真实日志渲染、等宽横向滚动全部正常。

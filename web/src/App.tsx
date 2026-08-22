@@ -142,6 +142,7 @@ import { ActionBar } from "./components/ActionBar";
 import { CompactUploadProgress } from "./components/CompactUploadProgress";
 import { ToastContainer } from "./components/Toast";
 import { MainViewErrorBoundary, DrawerPanelErrorBoundary } from "./components/ErrorBoundary";
+import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
 import { BottomSheet } from "./components/BottomSheet";
 import { ScheduledAgentTaskDialog } from "./components/ScheduledAgentTaskDialog";
 import { TaskTemplateDialog } from "./components/TaskTemplateDialog";
@@ -1678,6 +1679,7 @@ export function App({ onGoHome }: AppProps) {
   const [agentsVersion, setAgentsVersion] = useState(0);
   const [codexRateLimitsRefreshToken, setCodexRateLimitsRefreshToken] = useState(0);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const { isMobile, isTablet } = useResponsive();
   const [mobileEnterKeySends, setMobileEnterKeySends] = useState(loadMobileEnterKeySends);
   const [sidebarsSwapped, setSidebarsSwapped] = useState(loadSidebarsSwapped);
@@ -14469,6 +14471,7 @@ export function App({ onGoHome }: AppProps) {
             onRunAgentLifecycleCommand={handleRunAgentLifecycleCommand}
             onRestartAgent={handleRestartAgent}
             onGoHome={onGoHome}
+            onOpenDiagnostics={() => setDiagnosticsOpen(true)}
           />
         }
         rightSidebar={sessionSidebar}
@@ -15287,6 +15290,7 @@ export function App({ onGoHome }: AppProps) {
         onClose={() => setTaskTemplateDialogOpen(false)}
         onSaved={handleTaskTemplateSaved}
       />
+      {diagnosticsOpen ? <DiagnosticsPanel onClose={() => setDiagnosticsOpen(false)} /> : null}
       <ToastContainer />
     </>
   );

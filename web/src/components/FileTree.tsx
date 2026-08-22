@@ -156,6 +156,7 @@ type FileTreeProps = {
   onScanProjects?: () => void | Promise<void>;
   onOpenProjectAdd?: () => void;
   onStartOnboarding?: () => void;
+  onOpenDiagnostics?: () => void;
   onCreateRootNameChange?: (name: string) => void;
   onCreateRootSubmit?: () => void;
   onCreateRootCancel?: () => void;
@@ -1347,6 +1348,7 @@ export function FileTree({
   onScanProjects,
   onOpenProjectAdd,
   onStartOnboarding,
+  onOpenDiagnostics,
   onCreateRootNameChange,
   onCreateRootSubmit,
   onCreateRootCancel,
@@ -2985,6 +2987,24 @@ export function FileTree({
                   <span>{t("fileTree.relayLocalServices")}</span>
                 </button>
                 {!isNativeApp ? <WebPushMenuItem /> : null}
+                {onOpenDiagnostics ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onOpenDiagnostics();
+                      setIsMenuOpen(false);
+                      setIsAppearanceMenuOpen(false);
+                      setIsLocaleMenuOpen(false);
+                      setIsSortMenuOpen(false);
+                    }}
+                    style={fileTreeMenuButtonStyle}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                    </svg>
+                    <span>{t("fileTree.diagnostics")}</span>
+                  </button>
+                ) : null}
                 <div style={{ height: "1px", background: "var(--border-color)", margin: "6px 4px" }} />
                 <button
                   type="button"
