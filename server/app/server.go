@@ -217,6 +217,10 @@ func Start(ctx context.Context, addr string, opts StartOptions) error {
 	if err := relayMgr.Start(ctx); err != nil {
 		return err
 	}
+	shutdown.register("relay", func(context.Context) error {
+		relayMgr.Stop()
+		return nil
+	})
 	services.RelayTips.Start(ctx)
 	for _, root := range services.ListRoots() {
 		services.Kanban.Schedule(root.ID)

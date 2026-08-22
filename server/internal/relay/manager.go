@@ -111,6 +111,23 @@ func (m *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
+// Stop cancels the relay run loop; Run's deferred closes then tear down the
+// yamux session and WS long connection, so the relay side sees this node go
+// offline immediately instead of waiting for a keep-alive timeout. Safe to
+// call when never started, and idempotent.
+func (m *Manager) Stop() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	cancel := m.cancel
+	m.cancel = nil
+	m.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()

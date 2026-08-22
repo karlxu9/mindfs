@@ -102,3 +102,9 @@
 - `acp/process_windows.go` 的 `killProcessTree`：由名不符实的 `proc.Kill()`（只杀直接子进程）改为 `taskkill /PID <pid> /T /F`（对齐 commandexec 的 Windows KillTree），失败回退 `proc.Kill()`。
 
 **验证记录**：commandexec 全局关闭单测（fake Process：两会话各 KillTree 恰一次、map 清空、二次调用幂等 + 空注册表 no-op）；新增 Windows 真实进程树测试 `TestKillProcessTreeKillsGrandchildren`（cmd.exe 拉起 ping 子进程 → killProcessTree → 轮询断言孙进程全部消失），本机 Windows 真实通过（0.8s），该文件按 `_windows_test.go` 命名仅在 Windows CI 编译执行。全仓测试绿。
+
+## T10　relay.Manager 导出 Stop
+
+**实现**（2026-08-22）：`Manager.Stop()`——取出并清空内部 `cancel` 后调用（nil-safe、幂等）；`service.Run` 对 ctx 取消的既有 defer 链（`muxSession.Close()` + `conn.Close()`）随即主动关闭 yamux 会话与 WS 长连，中继端立即感知下线而非等 keep-alive 超时，无需新增关闭代码。编排器注册 `relay` 步骤（relayMgr.Start 之后，LIFO 中在 ws-clients 之后、kanban 之前执行——比设计表的"最后关"更早，中继端更早感知，符合 §2.3 意图）。TipsService 仍挂 root ctx 自停。
+
+**验证记录**：新增自包含的 Stop 单测（未启动安全、幂等、真实 cancel 传递、nil receiver），刻意不依赖包内执行顺序（fork-plan 阶段 0.5 已记录该包上游测试的顺序敏感缺陷）；relay 包全量 + 全仓测试绿。"中继端立即感知下线"的实机观察（relay 面板节点状态）并入阶段 2 收尾 checklist。
