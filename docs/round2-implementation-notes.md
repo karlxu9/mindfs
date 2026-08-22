@@ -55,3 +55,13 @@
 - **与设计表格的一处出入**：`relay-services.json` 设计 §3 表格权限列写 0644，但代码现状是 0600——按"不放宽权限"原则保持 0600，表格值疑为笔误，请产品复核。
 
 **验证记录**：helper 4 例单测全过（新写权限位、覆盖旧内容、rename 永久失败时目标保持旧内容且 tmp 保留新数据、瞬时失败重试一次成功）；受影响 5 包 + 全仓 `go test ./...` 绿（含 `fs/registry_test.go` 既有用例）。Windows 本机绿，ubuntu 侧由 CI 矩阵覆盖。
+
+## T5　退出编排器 + CLI 等待竞态修复【R-1.1 骨架】
+
+**实现**（2026-08-22）：
+
+- 新文件 `server/app/shutdown.go`：`shutdownOrchestrator`——按创建顺序 `register(name, fn)`、LIFO 执行、每步 recover + 耗时日志（`[shutdown] step=<name> ok/err elapsed=…`）、总预算 10s 看门狗（超时打印卡住的 step 后 `exitFn(3)` 强退，退出码 3 区分正常退出；`exitFn`/`budget` 为字段以便测试注入）。`run()` 为 once-and-wait 语义：信号协程与 Serve 返回后的同步调用不会双执行，后到者等待同一次执行完成。
+- `server/app/server.go`：废除 192-197 旁路协程；T5 范围内注册三步（创建顺序 agent-pool → agent-prober → http-server，LIFO 执行时 http.Shutdown（3s 子超时）最先、让 Serve 返回）；`Start` 直到编排完成才返回。**顺带修复**：优雅关闭时 `Serve` 返回的 `http.ErrServerClosed` 在 `Start` 内归一为 nil——否则 `mindfs-server` 入口会把正常退出当错误 exit 1（手工验证时发现）。
+- `cli/cmd/mindfs.go`：`select` 中 `ctx.Done()` 立即 return 的分支删除，改为直接等 `errCh`（即等 `Start` 走完关闭链）；看门狗保证等待有界。`mindfs-server` 本就同步调用，自动受益。
+
+**验证记录**：编排器 4 例单测（LIFO、panic 不中断后续、run 幂等并发、看门狗强退码 3）；全仓 `go test ./...` 绿。前台信号路径本机真实验证：Windows 上以隔离 APPDATA 沙箱启动 `mindfs-server`（端口 7999、-no-relayer），`GenerateConsoleCtrlEvent(CTRL_BREAK)` 后日志出现完整关闭序列（begin → http-server → agent-prober → agent-pool → done），10ms 内退出、exit code 0（验证脚手架为临时文件，未入库）。Unix `kill -TERM` 路径与 Windows 信号路径共用同一 `signal.NotifyContext` 链，逻辑一致，留待 CI/实机回归。

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -72,8 +73,11 @@ func EnsureE2EEConfig(enabled bool) (E2EEEnsureResult, error) {
 	}, nil
 }
 
-// Start boots the HTTP/WS server.
+// Start boots the HTTP/WS server. It returns only after the shutdown
+// orchestration has finished, so callers can treat "Start returned" as "all
+// resources released".
 func Start(ctx context.Context, addr string, opts StartOptions) error {
+	shutdown := newShutdownOrchestrator()
 	registry, err := fs.NewDefaultRegistry()
 	if err != nil {
 		return err
@@ -97,8 +101,16 @@ func Start(ctx context.Context, addr string, opts StartOptions) error {
 		relayBaseURL = agentConfig.RelayBaseURL
 	}
 	agentPool := agent.NewPool(agentConfig)
+	shutdown.register("agent-pool", func(context.Context) error {
+		agentPool.CloseAll()
+		return nil
+	})
 	agentProber := agent.NewProber(&agentConfig, agentPool, 5*time.Minute)
 	agentProber.Start(ctx)
+	shutdown.register("agent-prober", func(context.Context) error {
+		agentProber.Stop()
+		return nil
+	})
 	startHostedAgentConfigLoop(ctx, relayBaseURL, agentConfig, agentPool, agentProber)
 	agentPool.StartIdleReleaseLoop(ctx, func() time.Duration {
 		hours := preferences.DefaultIdleSessionResourceReleaseHours
@@ -189,21 +201,37 @@ func Start(ctx context.Context, addr string, opts StartOptions) error {
 		services.Kanban.Schedule(root.ID)
 	}
 
+	// Registered last, so it runs first on shutdown: closing the HTTP server
+	// is what makes Serve return below.
+	shutdown.register("http-server", func(ctx context.Context) error {
+		shutdownCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		return server.Shutdown(shutdownCtx)
+	})
 	go func() {
 		<-ctx.Done()
-		agentProber.Stop()
-		agentPool.CloseAll()
-		server.Shutdown(context.Background())
+		shutdown.run()
 	}()
 
 	if services.E2EE != nil {
 		services.E2EE.StartCleanup(ctx.Done())
 	}
 
+	var serveErr error
 	if opts.UseTLS {
-		return server.ServeTLS(listener, opts.CertFile, opts.KeyFile)
+		serveErr = server.ServeTLS(listener, opts.CertFile, opts.KeyFile)
+	} else {
+		serveErr = server.Serve(listener)
 	}
-	return server.Serve(listener)
+	// Serve has returned (signal-triggered shutdown or serve failure); run the
+	// orchestration to completion either way. run() is once-and-wait, so the
+	// signal path and this call cannot double-execute.
+	shutdown.run()
+	if errors.Is(serveErr, http.ErrServerClosed) {
+		// The regular graceful-shutdown result, not a failure.
+		return nil
+	}
+	return serveErr
 }
 
 func startHostedAgentConfigLoop(ctx context.Context, relayBaseURL string, localConfig agent.Config, pool *agent.Pool, prober *agent.Prober) {

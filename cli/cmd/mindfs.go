@@ -364,14 +364,12 @@ func main() {
 		}
 	}
 
-	select {
-	case <-ctx.Done():
-		return
-	case err := <-errCh:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			fmt.Fprintln(os.Stderr, err.Error())
-			os.Exit(1)
-		}
+	// Wait for app.Start itself: on a signal it only returns after the
+	// shutdown orchestration has finished, and its watchdog guarantees the
+	// wait is bounded. Returning on ctx.Done() here would race the cleanup.
+	if err := <-errCh; err != nil && !errors.Is(err, http.ErrServerClosed) {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
 	}
 }
 
