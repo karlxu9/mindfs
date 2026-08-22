@@ -455,3 +455,137 @@ func TestCloseAllStreamClientsWithoutHubIsNoop(t *testing.T) {
 		t.Fatal("CloseAllStreamClients lazily created the hub")
 	}
 }
+
+// A client stuck mid-replay must not block ClearSessionPending forever; the
+// bounded wait times out, cleanup proceeds, done broadcasts can go out
+// (bugfix B-5).
+func TestClearSessionPendingReplayWaitIsBounded(t *testing.T) {
+	originalWait := clearPendingReplayWait
+	clearPendingReplayWait = 150 * time.Millisecond
+	defer func() { clearPendingReplayWait = originalWait }()
+
+	hub := NewStreamHub(nil)
+	hub.SetPendingReply("root-1", "sess-1", "title")
+	hub.mu.Lock()
+	// A replay state that will never finish (its client is wedged).
+	hub.replayStates["client-1::sess-1"] = &ClientReplayState{Status: ClientStreamStatusReplay}
+	hub.mu.Unlock()
+
+	start := time.Now()
+	hub.ClearSessionPending("sess-1")
+	elapsed := time.Since(start)
+	if elapsed < 100*time.Millisecond || elapsed > 2*time.Second {
+		t.Fatalf("bounded wait took %s, want ~150ms", elapsed)
+	}
+	if hub.IsSessionReplying("sess-1") {
+		t.Fatal("pending state survived the bounded clear")
+	}
+	hub.mu.RLock()
+	_, replayLeft := hub.replayStates["client-1::sess-1"]
+	hub.mu.RUnlock()
+	if replayLeft {
+		t.Fatal("stale replay state survived the clear")
+	}
+}
+
+// A dead connection's write fails fast and must not stop later clients in
+// the same broadcast loop from receiving their messages (bugfix B-5).
+func TestWriteFailureDoesNotBlockOtherClients(t *testing.T) {
+	hub := NewStreamHub(nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		hub.RegisterClient(r.URL.Query().Get("client_id"), conn)
+	}))
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	deadConn, _, err := websocket.DefaultDialer.Dial(wsURL+"/?client_id=dead", nil)
+	if err != nil {
+		t.Fatalf("dial dead: %v", err)
+	}
+	liveConn, _, err := websocket.DefaultDialer.Dial(wsURL+"/?client_id=live", nil)
+	if err != nil {
+		t.Fatalf("dial live: %v", err)
+	}
+	defer liveConn.Close()
+
+	// Kill the dead client's transport, then let the server discover it on
+	// the first write.
+	_ = deadConn.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		hub.SendToClient("dead", WSResponse{Type: "probe"})
+		time.Sleep(20 * time.Millisecond)
+		hub.mu.RLock()
+		conn := hub.clients["dead"]
+		hub.mu.RUnlock()
+		if conn == nil {
+			break
+		}
+		// The server-side conn may take a moment to observe the close; a
+		// failed write closes it either way, so keep probing briefly.
+	}
+
+	start := time.Now()
+	hub.SendToClient("dead", WSResponse{Type: "after-death"})
+	hub.SendToClient("live", WSResponse{Type: "after-death"})
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("sends took %s, want fast", elapsed)
+	}
+	_ = liveConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	var got map[string]any
+	if err := liveConn.ReadJSON(&got); err != nil {
+		t.Fatalf("live client did not receive broadcast: %v", err)
+	}
+	if got["type"] != "after-death" {
+		t.Fatalf("live client got %v", got)
+	}
+}
+
+// Error frames must carry the session identity so the frontend can reset a
+// stuck pending state even without a live request mapping (bugfix B-6).
+func TestSendWSSessionErrorCarriesSessionIdentity(t *testing.T) {
+	app := &AppContext{}
+	handler := &WSHandler{AppContext: app}
+	hub := app.GetSessionStreamHub()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		hub.RegisterClient("client-1", conn)
+		handler.sendWSSessionError(conn, "client-1", "req-9", "session.cancel_failed", "boom", "root-1", "sess-1")
+		handler.sendWSError(conn, "client-1", "req-10", "invalid_request", "nope")
+	}))
+	defer server.Close()
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+
+	var withKey map[string]any
+	if err := conn.ReadJSON(&withKey); err != nil {
+		t.Fatalf("read first frame: %v", err)
+	}
+	payload, _ := withKey["payload"].(map[string]any)
+	if withKey["type"] != "session.error" || payload["session_key"] != "sess-1" || payload["root_id"] != "root-1" {
+		t.Fatalf("frame = %v, want session identity in payload", withKey)
+	}
+
+	var withoutKey map[string]any
+	if err := conn.ReadJSON(&withoutKey); err != nil {
+		t.Fatalf("read second frame: %v", err)
+	}
+	payload2, _ := withoutKey["payload"].(map[string]any)
+	if len(payload2) != 0 {
+		t.Fatalf("plain error payload = %v, want empty", payload2)
+	}
+}

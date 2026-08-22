@@ -518,7 +518,7 @@ func (h *WSHandler) handleSessionAnswerQuestion(ctx context.Context, conn *webso
 		ToolUseID:  toolUseID,
 		Answers:    answers,
 	}); err != nil {
-		h.sendWSError(conn, clientID, req.ID, "session.answer_question_failed", err.Error())
+		h.sendWSSessionError(conn, clientID, req.ID, "session.answer_question_failed", err.Error(), rootID, key)
 		return
 	}
 	if manager, err := h.AppContext.GetSessionManager(rootID); err == nil {
@@ -815,17 +815,17 @@ func (h *WSHandler) handleSessionPlanModeSet(ctx context.Context, conn *websocke
 	}
 	manager, err := h.AppContext.GetSessionManager(rootID)
 	if err != nil {
-		h.sendWSError(conn, clientID, req.ID, "session.plan_mode_failed", err.Error())
+		h.sendWSSessionError(conn, clientID, req.ID, "session.plan_mode_failed", err.Error(), rootID, key)
 		return
 	}
 	current, err := manager.Get(ctx, key, 0)
 	if err != nil {
-		h.sendWSError(conn, clientID, req.ID, "session.plan_mode_failed", err.Error())
+		h.sendWSSessionError(conn, clientID, req.ID, "session.plan_mode_failed", err.Error(), rootID, key)
 		return
 	}
 	previous := current.PlanMode
 	if err := manager.UpdatePlanMode(ctx, current, enabled); err != nil {
-		h.sendWSError(conn, clientID, req.ID, "session.plan_mode_failed", err.Error())
+		h.sendWSSessionError(conn, clientID, req.ID, "session.plan_mode_failed", err.Error(), rootID, key)
 		return
 	}
 	if previous != enabled {
@@ -833,7 +833,7 @@ func (h *WSHandler) handleSessionPlanModeSet(ctx context.Context, conn *websocke
 	}
 	updated, err := manager.Get(ctx, key, 0)
 	if err != nil {
-		h.sendWSError(conn, clientID, req.ID, "session.plan_mode_failed", err.Error())
+		h.sendWSSessionError(conn, clientID, req.ID, "session.plan_mode_failed", err.Error(), rootID, key)
 		return
 	}
 	h.sendWSAccepted(conn, clientID, requestID, rootID, key)
@@ -1051,7 +1051,7 @@ func (h *WSHandler) handleSessionCancel(ctx context.Context, conn *websocket.Con
 			streamHub.BroadcastSessionQueueUpdated(rootID, key, queue)
 		}
 		log.Printf("[ws] session.cancel.error root=%s session=%s request=%s err=%v", rootID, key, req.ID, err)
-		h.sendWSError(conn, clientID, req.ID, "session.cancel_failed", err.Error())
+		h.sendWSSessionError(conn, clientID, req.ID, "session.cancel_failed", err.Error(), rootID, key)
 		return
 	}
 }
@@ -1119,6 +1119,20 @@ func (h *WSHandler) handleSessionQueueSendNow(ctx context.Context, conn *websock
 }
 
 func (h *WSHandler) sendWSError(conn *websocket.Conn, clientID, id, code, message string) {
+	h.sendWSSessionError(conn, clientID, id, code, message, "", "")
+}
+
+// sendWSSessionError carries the session identity on the error frame so the
+// frontend can reset that session's pending state even when its request
+// mapping is gone (bugfix B-6).
+func (h *WSHandler) sendWSSessionError(conn *websocket.Conn, clientID, id, code, message, rootID, sessionKey string) {
+	payload := map[string]any{}
+	if strings.TrimSpace(sessionKey) != "" {
+		payload["session_key"] = strings.TrimSpace(sessionKey)
+		if strings.TrimSpace(rootID) != "" {
+			payload["root_id"] = strings.TrimSpace(rootID)
+		}
+	}
 	resp := WSResponse{
 		ID:   id,
 		Type: "session.error",
@@ -1126,7 +1140,7 @@ func (h *WSHandler) sendWSError(conn *websocket.Conn, clientID, id, code, messag
 			Code:    code,
 			Message: message,
 		},
-		Payload: map[string]any{},
+		Payload: payload,
 	}
 	_ = h.writeWSJSON(clientID, conn, resp)
 }

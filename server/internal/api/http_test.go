@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	agenttypes "mindfs/server/internal/agent/types"
 	"mindfs/server/internal/e2ee"
 	"mindfs/server/internal/relay"
+	"mindfs/server/internal/session"
 )
 
 func TestPathForStaticAssetCleansURLPaths(t *testing.T) {
@@ -317,4 +319,33 @@ func TestHandleShutdownWithoutTriggerReturnsUnavailable(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rec.Code)
 	}
+}
+
+// Session responses must expose the in-flight reply state so an HTTP refresh
+// can correct a stuck frontend pending flag (bugfix B-1).
+func TestSessionResponsesCarryPendingFlag(t *testing.T) {
+	app := &AppContext{}
+	handler := &HTTPHandler{AppContext: app}
+	hub := app.GetSessionStreamHub()
+	sess := &session.Session{Key: "sess-1", Type: session.TypeChat}
+
+	assertPending := func(stage string, want bool) {
+		t.Helper()
+		detail := handler.sessionResponse(sess, nil, agenttypes.ContextWindow{}, nil)
+		if got, ok := detail["pending"].(bool); !ok || got != want {
+			t.Fatalf("%s: detail pending = %v, want %v", stage, detail["pending"], want)
+		}
+		list := handler.sessionListResponse(sess)
+		if got, ok := list["pending"].(bool); !ok || got != want {
+			t.Fatalf("%s: list pending = %v, want %v", stage, list["pending"], want)
+		}
+	}
+
+	assertPending("never replied", false)
+
+	hub.SetPendingReply("root-1", "sess-1", "title")
+	assertPending("reply in flight", true)
+
+	hub.ClearSessionPending("sess-1")
+	assertPending("reply finished", false)
 }

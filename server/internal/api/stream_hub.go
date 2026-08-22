@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -804,11 +805,26 @@ func (h *StreamHub) HasReplayClients(rootID, sessionKey string) bool {
 	return false
 }
 
+// clearPendingReplayWait bounds how long ClearSessionPending waits for
+// replaying clients; vars (not consts) so tests can shrink them (bugfix B-5).
+var (
+	clearPendingReplayWait = 2 * time.Second
+	wsWriteTimeout         = 10 * time.Second
+)
+
 func (h *StreamHub) ClearSessionPending(sessionKey string) {
 	if blank(sessionKey) {
 		return
 	}
+	// Bounded wait (bugfix B-5): a client stuck mid-replay used to spin this
+	// loop forever, delaying the pending cleanup — and the done broadcast
+	// behind it — for every client.
+	deadline := time.Now().Add(clearPendingReplayWait)
 	for h.HasReplayClients("", sessionKey) {
+		if time.Now().After(deadline) {
+			log.Printf("[ws] clear_pending.replay_wait_timeout session=%s wait=%s", sessionKey, clearPendingReplayWait)
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	h.mu.Lock()
@@ -940,6 +956,21 @@ func (h *StreamHub) WriteJSON(clientID string, conn *websocket.Conn, value any) 
 	lock := h.getConnLock(conn)
 	lock.Lock()
 	defer lock.Unlock()
+	// Write deadline (bugfix B-5): a slow or half-open connection used to
+	// block here indefinitely, wedging the conn lock and the broadcast loop
+	// behind it, so done never reached anyone.
+	_ = conn.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+	err := h.writeJSONLocked(clientID, conn, value)
+	if err != nil {
+		// Treat a failed write as a dead client: closing makes its read loop
+		// exit and unregister through the existing cleanup path.
+		log.Printf("[ws] write.error client=%s err=%v", clientID, err)
+		_ = conn.Close()
+	}
+	return err
+}
+
+func (h *StreamHub) writeJSONLocked(clientID string, conn *websocket.Conn, value any) error {
 	if h.e2eeManager != nil && h.e2eeManager.Enabled() {
 		if resp, ok := value.(WSResponse); ok && resp.Type == "e2ee.error" {
 			return conn.WriteJSON(resp)

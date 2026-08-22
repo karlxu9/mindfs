@@ -1163,6 +1163,17 @@ func (h *HTTPHandler) handleSessionDelete(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// sessionPending reports whether the session has a reply in flight, read
+// from the same in-memory state /api/replying-sessions serves (bugfix B-1).
+// Exposing it on every session response lets any HTTP refresh correct a
+// frontend pending flag whose session.done event was lost.
+func (h *HTTPHandler) sessionPending(sessionKey string) bool {
+	if h == nil || h.AppContext == nil {
+		return false
+	}
+	return h.AppContext.GetSessionStreamHub().IsSessionReplying(sessionKey)
+}
+
 func (h *HTTPHandler) sessionResponse(
 	s *session.Session,
 	pendingUser *session.Exchange,
@@ -1204,6 +1215,7 @@ func (h *HTTPHandler) sessionResponse(
 		"related_files":       s.RelatedFiles,
 		"related_worktree":    s.RelatedWorktree,
 		"context_window":      contextWindow,
+		"pending":             h.sessionPending(s.Key),
 		"pinned_at":           s.PinnedAt,
 		"created_at":          s.CreatedAt,
 		"updated_at":          s.UpdatedAt,
@@ -1231,6 +1243,7 @@ func (h *HTTPHandler) sessionListResponse(s *session.Session) map[string]any {
 		"shell":               h.commandShellForSession(s),
 		"name":                s.Name,
 		"related_worktree":    s.RelatedWorktree,
+		"pending":             h.sessionPending(s.Key),
 		"pinned_at":           s.PinnedAt,
 		"created_at":          s.CreatedAt,
 		"updated_at":          s.UpdatedAt,
