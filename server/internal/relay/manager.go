@@ -128,6 +128,17 @@ func (m *Manager) Stop() {
 	}
 }
 
+// Running reports whether the relay run loop is active (tunnel up or
+// reconnecting). Diagnostics surfaces it as "connected".
+func (m *Manager) Running() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cancel != nil
+}
+
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()

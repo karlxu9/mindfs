@@ -134,3 +134,13 @@
 - Windows 自启动无 std 重定向（GUI 进程），服务进程自接管日志后天然正确。
 
 **验证记录**：writer 三例单测（跨阈值滚动且主文件重新计数、`.1/.2/.3` 链上限与最新内容位次、8×50 并发写安全）+ `servicePaths` 双地址分文件断言；本机 `-race` 因无 gcc 跑不了（race detector 需 cgo），并发正确性由互斥实现保证，CI 侧如有 race 配置自动覆盖。真实验证：沙箱双实例（7995/7996 端口）同时运行，各写 `mindfs-127_0_0_1_<port>.log`、内容零交叉。全仓测试绿。macOS launchd 场景（验收③）为唯一无 CI 覆盖平台，列入手工 checklist。
+
+## T14　`/api/logs` + `/api/diagnostics`【R-4.2 / R-4.3 后端】
+
+**实现**（2026-08-22）：
+
+- 新文件 `api/logs.go`：`tailLogFile` 从文件尾按 64KB 块反向读取（不整文件载入），默认 200 行、上限 2000（`lines` 参数钳制）；单行超过 8KB 截断加 `...(line truncated)` 标记；读取总预算 `(N+1)×8KB` 保证超长单行文件下工作量有界；响应 `{path, size_bytes, lines[], truncated}`。
+- 新文件 `api/diagnostics.go`：聚合字段与设计 §5.2 一致（version / started_at / uptime_seconds / os_arch / addr / roots[] / agents[] / webpush / relay / scheduled / log）。信息源：roots 经 `ListRoots` + `EffectiveMetaLocation` + 每 root `ListMetas` 计数（一条 sqlite 查询，非磁盘扫描；管理器不可用时 session_count 为 -1）；agents 复用 `Prober.GetAllStatuses`；webpush 复用既有 `Status()`；relay 新增只读 `Running()`（run loop 活跃即 connected）；scheduled 新增 `Summary()`（内存态 entries 计数 + cron.Entries 最早 Next——**口径为"已启用排程数"**，禁用任务不计，符合 N-4 只读内存态要求）。
+- 两端点走既有 `protectedEndpoint` 会话鉴权（Relay 天然可用）；`HTTPHandler` 增 `StartedAt/Addr/LogPath` 字段由 server/app 注入，`StartOptions.LogPath` 从 CLI 传入——裸 `mindfs-server`（stdout 模式）无日志文件，`/api/logs` 返回 404 说明而非假数据。
+
+**验证记录**：尾部读取 5 例单测（空文件、取尾窗口、跨 64KB 块边界、64KB 单行截断、lines 钳制）+ diagnostics 字段快照 + 无日志路径 404。端到端（沙箱 daemon 实例）：两端点真实返回，字段与设计一致，diagnostics 延迟 59ms（< 500ms 预算）。全仓测试绿。

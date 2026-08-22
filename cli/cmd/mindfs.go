@@ -338,6 +338,7 @@ func main() {
 			UseTLS:          *tlsFlag,
 			CertFile:        resolvedCert,
 			KeyFile:         resolvedKey,
+			LogPath:         logPath,
 		})
 	}()
 	if err := waitForServer(*addr, *tlsFlag, 8*time.Second); err != nil {

@@ -140,6 +140,36 @@ func (s *Service) Start(ctx context.Context) {
 	}
 }
 
+// Summary is the diagnostics view of the scheduler: enabled (scheduled)
+// task count and the next fire time, both read from in-memory state only.
+type Summary struct {
+	TaskCount int
+	NextRunAt *time.Time
+}
+
+func (s *Service) Summary() Summary {
+	if s == nil {
+		return Summary{}
+	}
+	s.mu.Lock()
+	count := 0
+	for _, ids := range s.entries {
+		count += len(ids)
+	}
+	s.mu.Unlock()
+	var next *time.Time
+	for _, entry := range s.cron.Entries() {
+		if entry.Next.IsZero() {
+			continue
+		}
+		if next == nil || entry.Next.Before(*next) {
+			at := entry.Next
+			next = &at
+		}
+	}
+	return Summary{TaskCount: count, NextRunAt: next}
+}
+
 // Stop halts the cron scheduler and waits up to five seconds for a job that
 // is mid-flight, so shutdown neither abandons a run silently nor hangs on it.
 // The shutdown orchestrator owns stopping now; Start no longer watches ctx.

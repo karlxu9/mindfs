@@ -46,6 +46,9 @@ type StartOptions struct {
 	UseTLS          bool
 	CertFile        string
 	KeyFile         string
+	// LogPath is the service log file, when the process owns one; feeds the
+	// /api/logs and /api/diagnostics endpoints.
+	LogPath string
 }
 
 type E2EEConfig struct {
@@ -186,6 +189,9 @@ func Start(ctx context.Context, addr string, opts StartOptions) error {
 		// Same entry as the signal path: one shutdown sequence, no second
 		// implementation (R-1.2).
 		RequestShutdown: shutdown.run,
+		StartedAt:       time.Now().UTC(),
+		Addr:            addr,
+		LogPath:         opts.LogPath,
 	}
 	// Self-update: run the close sequence, then spawn the replacement while
 	// still inside run(), so Start cannot return (and the process cannot

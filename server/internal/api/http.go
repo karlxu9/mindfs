@@ -48,6 +48,12 @@ type HTTPHandler struct {
 	// RequestShutdown triggers the graceful shutdown sequence; injected by
 	// server/app. The /api/shutdown endpoint is unavailable without it.
 	RequestShutdown func()
+	// StartedAt, Addr and LogPath feed the diagnostics and logs endpoints
+	// (R-4.2 / R-4.3); LogPath is empty when the process has no log file
+	// (e.g. bare mindfs-server writing to stdout).
+	StartedAt time.Time
+	Addr      string
+	LogPath   string
 }
 
 // handleShutdown lets the local CLI ask the server to exit through the full
@@ -300,6 +306,8 @@ func (h *HTTPHandler) Routes() http.Handler {
 	r.Get("/", h.handleFrontend)
 	r.Get("/health", h.handleHealth)
 	r.Post("/api/shutdown", h.handleShutdown)
+	r.Get("/api/logs", h.protectedEndpoint(h.handleLogs))
+	r.Get("/api/diagnostics", h.protectedEndpoint(h.handleDiagnostics))
 	r.Get("/api/tree", h.protectedEndpoint(h.handleTree))
 	r.Get("/api/file", h.handleFile)
 	r.Get("/api/git/status", h.protectedEndpoint(h.handleGitStatus))
