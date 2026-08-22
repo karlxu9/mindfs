@@ -273,6 +273,25 @@ func (h *StreamHub) RegisterClient(clientID string, conn *websocket.Conn) {
 	h.mu.Unlock()
 }
 
+// CloseAllClients force-closes every connected WS client. Hijacked
+// connections are outside http.Server.Shutdown's reach, so the shutdown
+// sequence calls this to unblock the per-connection read loops.
+func (h *StreamHub) CloseAllClients() {
+	h.mu.Lock()
+	conns := make([]*websocket.Conn, 0, len(h.clients))
+	for _, conn := range h.clients {
+		if conn != nil {
+			conns = append(conns, conn)
+		}
+	}
+	h.mu.Unlock()
+	closeMessage := websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutting down")
+	for _, conn := range conns {
+		_ = conn.WriteControl(websocket.CloseMessage, closeMessage, time.Now().Add(time.Second))
+		_ = conn.Close()
+	}
+}
+
 func (h *StreamHub) UnregisterClient(clientID string, conn *websocket.Conn) {
 	if blank(clientID) {
 		return

@@ -65,3 +65,9 @@
 - `cli/cmd/mindfs.go`：`select` 中 `ctx.Done()` 立即 return 的分支删除，改为直接等 `errCh`（即等 `Start` 走完关闭链）；看门狗保证等待有界。`mindfs-server` 本就同步调用，自动受益。
 
 **验证记录**：编排器 4 例单测（LIFO、panic 不中断后续、run 幂等并发、看门狗强退码 3）；全仓 `go test ./...` 绿。前台信号路径本机真实验证：Windows 上以隔离 APPDATA 沙箱启动 `mindfs-server`（端口 7999、-no-relayer），`GenerateConsoleCtrlEvent(CTRL_BREAK)` 后日志出现完整关闭序列（begin → http-server → agent-prober → agent-pool → done），10ms 内退出、exit code 0（验证脚手架为临时文件，未入库）。Unix `kill -TERM` 路径与 Windows 信号路径共用同一 `signal.NotifyContext` 链，逻辑一致，留待 CI/实机回归。
+
+## T6　HTTP/WS 停止完善
+
+**实现**（2026-08-22）：`StreamHub.CloseAllClients()`——快照取全部连接后逐个发 `CloseGoingAway` 控制帧（1s 写超时）再 `Close()`，解除 hijacked 连接读循环的阻塞；`AppContext.CloseAllStreamClients()` 只在 hub 已创建时关闭（不懒建，"没有 hub 就没有要关的"）；编排器注册 `ws-clients` 步骤于 http-server 之前（LIFO 执行序：http-server → ws-clients → prober → pool）。
+
+**验证记录**：新增带 3 条真实 WS 连接的关闭测试（CloseAllClients 耗时上限断言 + 三客户端全部断开）与 hub 未创建的 no-op 断言；api、app 两包及全仓测试绿。前端重连逻辑核实：`session.ts` 的 `onclose` 不区分 close code、无条件 `scheduleReconnect()`，服务端主动断开后 UI 自动恢复有代码依据；真实重启的 UI 手工回归并入阶段 2 收尾 checklist（避免中断本机常驻服务）。

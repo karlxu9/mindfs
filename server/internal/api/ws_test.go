@@ -5,9 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"mindfs/server/internal/agent"
 	agenttypes "mindfs/server/internal/agent/types"
@@ -400,5 +403,55 @@ func TestWSProofPathExcludesProofQueryParams(t *testing.T) {
 
 	if got, want := wsProofPath(req), "/ws?client_id=web-test"; got != want {
 		t.Fatalf("wsProofPath() = %q, want %q", got, want)
+	}
+}
+
+// Hijacked WS connections are invisible to http.Server.Shutdown; shutdown
+// closes them through the hub, and it must not eat into the 10s budget.
+func TestCloseAllClientsDisconnectsActiveConnections(t *testing.T) {
+	hub := NewStreamHub(nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		hub.RegisterClient(r.URL.Query().Get("client_id"), conn)
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	var conns []*websocket.Conn
+	for i := 0; i < 3; i++ {
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL+"/?client_id=client-"+strconv.Itoa(i), nil)
+		if err != nil {
+			t.Fatalf("dial %d: %v", i, err)
+		}
+		defer conn.Close()
+		conns = append(conns, conn)
+	}
+
+	start := time.Now()
+	hub.CloseAllClients()
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("CloseAllClients took %s, want fast", elapsed)
+	}
+
+	for i, conn := range conns {
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		if _, _, err := conn.ReadMessage(); err == nil {
+			t.Fatalf("client %d still connected after CloseAllClients", i)
+		}
+	}
+}
+
+// The shutdown step tolerates an AppContext whose hub was never created.
+func TestCloseAllStreamClientsWithoutHubIsNoop(t *testing.T) {
+	app := &AppContext{}
+	app.CloseAllStreamClients() // must not panic or create a hub
+	app.mu.RLock()
+	defer app.mu.RUnlock()
+	if app.streamHub != nil {
+		t.Fatal("CloseAllStreamClients lazily created the hub")
 	}
 }

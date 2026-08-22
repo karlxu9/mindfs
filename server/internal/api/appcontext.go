@@ -786,6 +786,21 @@ func (s *AppContext) GetSessionStreamHub() *StreamHub {
 	return s.streamHub
 }
 
+// CloseAllStreamClients disconnects every WS client. Unlike
+// GetSessionStreamHub it does not lazily create the hub: with no hub there is
+// nothing to close.
+func (s *AppContext) CloseAllStreamClients() {
+	if s == nil {
+		return
+	}
+	s.mu.RLock()
+	hub := s.streamHub
+	s.mu.RUnlock()
+	if hub != nil {
+		hub.CloseAllClients()
+	}
+}
+
 func (s *AppContext) BroadcastSessionMetaUpdated(rootID string, sess *session.Session) {
 	if sess == nil {
 		s.GetSessionStreamHub().BroadcastAll(WSResponse{Type: "session.meta.updated"})

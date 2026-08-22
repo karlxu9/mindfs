@@ -201,6 +201,10 @@ func Start(ctx context.Context, addr string, opts StartOptions) error {
 		services.Kanban.Schedule(root.ID)
 	}
 
+	shutdown.register("ws-clients", func(context.Context) error {
+		services.CloseAllStreamClients()
+		return nil
+	})
 	// Registered last, so it runs first on shutdown: closing the HTTP server
 	// is what makes Serve return below.
 	shutdown.register("http-server", func(ctx context.Context) error {
