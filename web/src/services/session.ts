@@ -292,7 +292,18 @@ type PendingMessage = {
 class SessionService {
   private ws: WebSocket | null = null;
   private handlers = new Map<string, Set<SessionEventHandler>>();
-  private pendingStreams = new Map<string, StreamEvent[]>();
+  // Events that arrived while a session had no subscriber, replayed in order
+  // on the next subscribe. Entries are either stream events or terminal
+  // done/error markers — dropping the terminal ones used to leave the UI
+  // stuck on "generating" after switching back (bugfix B-3).
+  private pendingStreams = new Map<
+    string,
+    Array<
+      | { kind: "stream"; event: StreamEvent }
+      | { kind: "done" }
+      | { kind: "error"; message: string }
+    >
+  >();
   private activeStreams = new Set<string>();
   private eventCursors = new Map<string, string>();
   private pendingMessages = new Map<string, PendingMessage>();
@@ -315,6 +326,11 @@ class SessionService {
   private readonly probeTimeoutMs = 2000;
   private readonly reconnectWatchdogMs = 3000;
   private contextCache = new Map<string, { selectionKey: string }>();
+  // session.ready subscriptions that could not be sent yet; flushed on every
+  // successful (re)connect (bugfix B-4).
+  private pendingReadySessions = new Map<string, { rootId: string; sessionKey: string }>();
+  // Serializes WS message handling in arrival order (bugfix B-7).
+  private messagePipeline: Promise<void> = Promise.resolve();
 
   constructor() {
     e2eeService.setClientId(this.clientId);
@@ -428,22 +444,13 @@ class SessionService {
         });
       }
       this.resendPendingMessages();
+      this.flushPendingReadySessions();
     };
 
     ws.onmessage = (event) => {
       if (this.ws !== ws) return;
       this.clearProbe();
-      void (async () => {
-        try {
-          const msg = await this.parseWSMessage(event.data);
-          if (!msg) {
-            return;
-          }
-          this.handleMessage(msg);
-        } catch (err) {
-          console.error("[Session] Failed to parse message:", err);
-        }
-      })();
+      this.enqueueIncomingMessage(event.data);
     };
 
     ws.onclose = (event) => {
@@ -690,16 +697,29 @@ class SessionService {
     this.updateActiveStreamState(type, sessionKey, nextPayload);
 
     const handlers = this.handlers.get(sessionKey);
-    if ((!handlers || handlers.size === 0) && type === "session.stream") {
-      const event = nextPayload.event as StreamEvent;
-      if (event) {
-        const queued = this.pendingStreams.get(sessionKey) || [];
-        queued.push(event);
+    if (!handlers || handlers.size === 0) {
+      // No subscriber: queue for replay. done/error queue like stream events
+      // so re-subscribing settles on the real terminal state instead of a
+      // replayed stream event pinning "generating" forever (bugfix B-3).
+      const queued = this.pendingStreams.get(sessionKey) || [];
+      if (type === "session.stream") {
+        const event = nextPayload.event as StreamEvent;
+        if (event) {
+          queued.push({ kind: "stream", event });
+          this.pendingStreams.set(sessionKey, queued);
+        }
+      } else if (type === "session.done") {
+        queued.push({ kind: "done" });
+        this.pendingStreams.set(sessionKey, queued);
+      } else if (type === "session.error") {
+        queued.push({
+          kind: "error",
+          message: msg?.error?.message || "Unknown error",
+        });
         this.pendingStreams.set(sessionKey, queued);
       }
       return;
     }
-    if (!handlers || handlers.size === 0) return;
 
     switch (type) {
       case "session.stream":
@@ -718,6 +738,26 @@ class SessionService {
         }
         break;
     }
+  }
+
+  // enqueueIncomingMessage serializes WS message handling in arrival order
+  // (bugfix B-7): parsing may decrypt asynchronously under E2EE, and the old
+  // per-message fire-and-forget let completions land out of order — a
+  // late-decrypted stream event could re-pin "generating" after the done was
+  // already handled. The plaintext path resolves immediately, so chaining
+  // costs nothing there.
+  private enqueueIncomingMessage(raw: unknown) {
+    this.messagePipeline = this.messagePipeline.then(async () => {
+      try {
+        const msg = await this.parseWSMessage(raw);
+        if (!msg) {
+          return;
+        }
+        this.handleMessage(msg);
+      } catch (err) {
+        console.error("[Session] Failed to parse message:", err);
+      }
+    });
   }
 
   private async parseWSMessage(raw: unknown): Promise<any | null> {
@@ -784,6 +824,24 @@ class SessionService {
     return this.activeStreams.has(sessionKey);
   }
 
+  // resolvePendingLocally synthesizes a session.done delivery for a session
+  // the server confirmed is no longer replying (bugfix B-2 watchdog). It runs
+  // the full done path — global listeners, per-session onDone (or replay
+  // queue), stream-state cleanup — with replay:true so no completion sound
+  // fires. Idempotent: a second delivery clears already-clean state again.
+  resolvePendingLocally(rootId: string, sessionKey: string) {
+    if (!sessionKey) return;
+    // Drop replay backlog first so queued stream events cannot re-pin the
+    // "generating" state after this synthetic completion.
+    this.pendingStreams.delete(sessionKey);
+    this.emitDecrypted(
+      "session.done",
+      sessionKey,
+      { root_id: rootId, session_key: sessionKey, replay: true, synthetic: true },
+      {},
+    );
+  }
+
   private eventCursorKey(rootId: string, sessionKey: string): string {
     if (!rootId || !sessionKey) return "";
     return `${rootId}::${sessionKey}`;
@@ -807,8 +865,14 @@ class SessionService {
 
     const queued = this.pendingStreams.get(sessionKey);
     if (queued && queued.length > 0) {
-      for (const event of queued) {
-        handler.onStream?.(event);
+      for (const entry of queued) {
+        if (entry.kind === "stream") {
+          handler.onStream?.(entry.event);
+        } else if (entry.kind === "done") {
+          handler.onDone?.();
+        } else {
+          handler.onError?.(entry.message);
+        }
       }
       this.pendingStreams.delete(sessionKey);
     }
@@ -1049,10 +1113,15 @@ class SessionService {
   }
 
   async markSessionReady(rootId: string, sessionKey: string): Promise<boolean> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (!rootId || !sessionKey) {
       return false;
     }
-    if (!rootId || !sessionKey) {
+    const pendingKey = `${rootId}::${sessionKey}`;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      // Bugfix B-4: a ready that cannot be sent used to vanish silently,
+      // leaving the session unbound server-side (its done undeliverable).
+      // Queue it; the next successful (re)connect flushes the backlog.
+      this.pendingReadySessions.set(pendingKey, { rootId, sessionKey });
       return false;
     }
     const now = Date.now();
@@ -1062,7 +1131,7 @@ class SessionService {
     const eventCursor = this.eventCursors.get(
       this.eventCursorKey(rootId, sessionKey),
     );
-    return this.sendWSMessage({
+    const sent = await this.sendWSMessage({
       id: `ready-${now}`,
       type: "session.ready",
       payload: {
@@ -1071,6 +1140,23 @@ class SessionService {
         ...(eventCursor ? { event_cursor: eventCursor } : {}),
       },
     });
+    if (sent) {
+      this.pendingReadySessions.delete(pendingKey);
+    } else {
+      this.pendingReadySessions.set(pendingKey, { rootId, sessionKey });
+    }
+    return sent;
+  }
+
+  private flushPendingReadySessions() {
+    if (this.pendingReadySessions.size === 0) {
+      return;
+    }
+    const entries = [...this.pendingReadySessions.values()];
+    this.pendingReadySessions.clear();
+    for (const entry of entries) {
+      void this.markSessionReady(entry.rootId, entry.sessionKey).catch(() => {});
+    }
   }
 
   async fetchSessions(

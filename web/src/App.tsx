@@ -141,6 +141,11 @@ import { AgentMenuList } from "./components/AgentMenuList";
 import { ActionBar } from "./components/ActionBar";
 import { CompactUploadProgress } from "./components/CompactUploadProgress";
 import { ToastContainer } from "./components/Toast";
+import {
+  createPendingWatchdog,
+  parsePendingCacheKeys,
+  type PendingWatchdog,
+} from "./services/pendingWatchdog";
 import { MainViewErrorBoundary, DrawerPanelErrorBoundary } from "./components/ErrorBoundary";
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
 import { BottomSheet } from "./components/BottomSheet";
@@ -3441,6 +3446,49 @@ export function App({ onGoHome }: AppProps) {
     [bumpCacheVersion, rootSessionKey, setDrawerSessionForRoot, setMultiProjectSessionPending],
   );
 
+  // Pending watchdog (bugfix B-2): while local pending sessions exist,
+  // reconcile every 10s against the server's replying list and force-clear
+  // sessions whose session.done never arrived. Fully stopped otherwise.
+  const pendingWatchdogRef = useRef<PendingWatchdog | null>(null);
+  const pokePendingWatchdog = useCallback(() => {
+    if (!pendingWatchdogRef.current) {
+      pendingWatchdogRef.current = createPendingWatchdog({
+        listLocalPending: () => {
+          const startedAt: Record<string, number> = {};
+          for (const [key, value] of Object.entries(pendingBySessionRef.current)) {
+            const ms = Date.parse(String((value as PendingSend | undefined)?.timestamp || ""));
+            if (Number.isFinite(ms)) startedAt[key] = ms;
+          }
+          return parsePendingCacheKeys(Object.keys(pendingBySessionRef.current), startedAt);
+        },
+        fetchReplying: async () => {
+          const payload = await apiProtectedJSON<any>(appPath("/api/replying-sessions"));
+          const items = Array.isArray(payload?.sessions) ? payload.sessions : [];
+          return items
+            .map((item: any) => ({
+              rootId: String(item?.rootId || item?.root_id || ""),
+              sessionKey: String(item?.sessionKey || item?.session_key || ""),
+            }))
+            .filter((item: { rootId: string; sessionKey: string }) => item.rootId && item.sessionKey);
+        },
+        resolveStuck: ({ rootId, sessionKey }) => {
+          console.info("[session/watchdog] clear_stuck_pending", { rootId, sessionKey });
+          const cacheKey = rootSessionKey(rootId, sessionKey);
+          // Gap F ghosts go first, so the synthetic done below is not
+          // swallowed by the queued-continuation early return.
+          delete optimisticDequeuedIdsRef.current[cacheKey];
+          delete queueFrozenBySessionRef.current[cacheKey];
+          sessionService.resolvePendingLocally(rootId, sessionKey);
+          // Belt and braces: even if the done path bails out somewhere, the
+          // local pending mirrors end up cleared. Idempotent.
+          clearLocalPendingForSession(rootId, sessionKey);
+        },
+      });
+    }
+    pendingWatchdogRef.current.poke();
+  }, [clearLocalPendingForSession, rootSessionKey]);
+  useEffect(() => () => pendingWatchdogRef.current?.stop(), []);
+
   const markSessionStale = useCallback(
     (rootID: string | null | undefined, sessionKey: string | null | undefined) => {
       const resolvedRoot = String(rootID || "");
@@ -3505,6 +3553,10 @@ export function App({ onGoHome }: AppProps) {
       const syncResult = await request;
       let fullSession = syncResult?.session;
       if (!fullSession) {
+        // Bugfix B-4: the ready (re)subscription must not depend on the HTTP
+        // sync succeeding — skipping it left the session unbound server-side
+        // after a reconnect, so its done event had nowhere to go.
+        void sessionService.markSessionReady(resolvedRoot, resolvedKey);
         return null;
       }
       if (resumeCursor) {
@@ -9251,6 +9303,7 @@ export function App({ onGoHome }: AppProps) {
           pending = draft;
           pendingBySessionRef.current[ck] = draft;
           pendingDraftRef.current = null;
+          pokePendingWatchdog();
           console.info("[session/stream] attach_pending_draft", { rootId: activeRoot, streamKey, requestId: draft.requestId, tempKey: draft.tempKey || null });
         }
       }
@@ -9967,6 +10020,7 @@ export function App({ onGoHome }: AppProps) {
               timestamp: acceptedTimestamp,
               sessionKey: acceptedSessionKey,
             };
+            pokePendingWatchdog();
             setMultiProjectSessionPending(pending.rootId, pending.tempKey, false);
             setMultiProjectSessionPending(pending.rootId, acceptedSessionKey, true);
             if (pendingDraftRef.current?.requestId === pending.requestId) {
@@ -10033,7 +10087,21 @@ export function App({ onGoHome }: AppProps) {
             ? pendingRequestRef.current[requestId]
             : null;
           if (!requestId || !pending) {
-            console.warn("[session/ws] error_without_pending", { requestId, payloadSessionKey: typeof payload?.session_key === "string" ? payload.session_key : null });
+            // Bugfix B-6: the error frame now carries the session identity,
+            // so even without a live request mapping the stuck pending state
+            // can be reset instead of waiting forever.
+            const payloadKey =
+              typeof payload?.session_key === "string" ? payload.session_key : "";
+            const payloadRoot =
+              typeof payload?.root_id === "string" && payload.root_id
+                ? payload.root_id
+                : resolveRootForSessionKey(payloadKey) ||
+                  currentRootIdRef.current ||
+                  "";
+            if (payloadKey && payloadRoot) {
+              clearLocalPendingForSession(payloadRoot, payloadKey);
+            }
+            console.warn("[session/ws] error_without_pending", { requestId, payloadSessionKey: payloadKey || null });
             break;
           }
           console.warn("[session/ws] error", { requestId, rootId: pending.rootId, sessionKey: pending.sessionKey || null, tempKey: pending.tempKey || null });
@@ -10532,8 +10600,10 @@ export function App({ onGoHome }: AppProps) {
     appendPlanUpdateForSession,
     appendCompactNoticeForSession,
     clearSessionStale,
+    clearLocalPendingForSession,
     markSessionPending,
     markSessionStale,
+    pokePendingWatchdog,
     resolvePendingForSession,
     setSelectedPendingByKey,
     setBoundSessionForRoot,
