@@ -15,9 +15,11 @@ export type ScheduledAgentTask = {
   prompt: string;
   new_session_cron?: string;
   session_key?: string;
+  timeout_minutes?: number;
   last_run_at?: string;
   last_success_at?: string;
   last_error?: string;
+  last_skipped_at?: string;
   last_session_reset_at?: string;
   next_run_at?: string;
   next_new_session_at?: string;
@@ -38,6 +40,7 @@ export type ScheduledAgentTaskInput = {
   fast_service?: "" | "on" | "off";
   prompt: string;
   new_session_cron?: string;
+  timeout_minutes?: number;
 };
 
 function taskURL(rootId: string): string {

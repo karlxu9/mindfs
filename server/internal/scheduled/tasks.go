@@ -51,15 +51,33 @@ type Task struct {
 	Prompt             string     `json:"prompt"`
 	NewSessionCron     string     `json:"new_session_cron,omitempty"`
 	SessionKey         string     `json:"session_key,omitempty"`
-	LastRunAt          *time.Time `json:"last_run_at,omitempty"`
-	LastSuccessAt      *time.Time `json:"last_success_at,omitempty"`
-	LastError          string     `json:"last_error,omitempty"`
+	// TimeoutMinutes caps a single run; 0 falls back to the 60-minute
+	// default (R-6.1). omitempty keeps old task files readable.
+	TimeoutMinutes int        `json:"timeout_minutes,omitempty"`
+	LastRunAt      *time.Time `json:"last_run_at,omitempty"`
+	LastSuccessAt  *time.Time `json:"last_success_at,omitempty"`
+	LastError      string     `json:"last_error,omitempty"`
+	// LastSkippedAt records a "previous run still active" skip separately, so
+	// it never clobbers the real LastError (R-6.2).
+	LastSkippedAt      *time.Time `json:"last_skipped_at,omitempty"`
 	LastSessionResetAt *time.Time `json:"last_session_reset_at,omitempty"`
 	NextRunAt          *time.Time `json:"next_run_at,omitempty"`
 	NextNewSessionAt   *time.Time `json:"next_new_session_at,omitempty"`
 	Running            bool       `json:"running,omitempty"`
 	CreatedAt          time.Time  `json:"created_at"`
 	UpdatedAt          time.Time  `json:"updated_at"`
+}
+
+const defaultRunTimeout = 60 * time.Minute
+
+// runTimeoutUnit is a test seam; production always uses time.Minute.
+var runTimeoutUnit = time.Minute
+
+func (t Task) runTimeout() time.Duration {
+	if t.TimeoutMinutes > 0 {
+		return time.Duration(t.TimeoutMinutes) * runTimeoutUnit
+	}
+	return defaultRunTimeout
 }
 
 type Store struct {
@@ -103,9 +121,16 @@ func (s *Store) Save(tasks []Task) error {
 	return s.root.WriteMetaFile(tasksMetaFile, data)
 }
 
+// taskRunnerUsecase is the slice of the usecase service runTask needs,
+// narrowed to an interface so tests can hang a run on purpose (R-6.1).
+type taskRunnerUsecase interface {
+	CreateSession(ctx context.Context, in usecase.CreateSessionInput) (*session.Session, error)
+	SendMessage(ctx context.Context, in usecase.SendMessageInput) error
+}
+
 type Service struct {
 	registry    usecase.Registry
-	usecase     *usecase.Service
+	usecase     taskRunnerUsecase
 	broadcaster SessionActivityBroadcaster
 	parser      cron.Parser
 	cron        *cron.Cron
@@ -216,6 +241,7 @@ type SaveInput struct {
 	FastService    string `json:"fast_service"`
 	Prompt         string `json:"prompt"`
 	NewSessionCron string `json:"new_session_cron"`
+	TimeoutMinutes int    `json:"timeout_minutes"`
 }
 
 func (s *Service) Create(ctx context.Context, in SaveInput) (Task, error) {
@@ -244,6 +270,7 @@ func (s *Service) Create(ctx context.Context, in SaveInput) (Task, error) {
 		FastService:    strings.TrimSpace(in.FastService),
 		Prompt:         strings.TrimSpace(in.Prompt),
 		NewSessionCron: strings.TrimSpace(in.NewSessionCron),
+		TimeoutMinutes: in.TimeoutMinutes,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
@@ -287,6 +314,7 @@ func (s *Service) Update(ctx context.Context, in SaveInput) (Task, error) {
 		tasks[i].FastService = strings.TrimSpace(in.FastService)
 		tasks[i].Prompt = strings.TrimSpace(in.Prompt)
 		tasks[i].NewSessionCron = strings.TrimSpace(in.NewSessionCron)
+		tasks[i].TimeoutMinutes = in.TimeoutMinutes
 		tasks[i].UpdatedAt = time.Now().UTC()
 		if err := store.Save(tasks); err != nil {
 			return Task{}, err
@@ -426,6 +454,9 @@ func (s *Service) validateInput(in SaveInput) error {
 	if strings.TrimSpace(in.Prompt) == "" {
 		return errors.New("prompt required")
 	}
+	if in.TimeoutMinutes < 0 {
+		return errors.New("timeout minutes must not be negative")
+	}
 	return nil
 }
 
@@ -452,10 +483,11 @@ func (s *Service) runTask(ctx context.Context, task Task, force bool) error {
 	s.mu.Lock()
 	if s.running[runKey] {
 		s.mu.Unlock()
+		// Record the skip in its own field; LastError keeps the last real
+		// failure visible (R-6.2).
 		_ = s.updateTask(task.RootID, task.ID, func(t *Task) {
 			now := time.Now().UTC()
-			t.LastRunAt = &now
-			t.LastError = "previous run still active"
+			t.LastSkippedAt = &now
 			t.UpdatedAt = now
 		})
 		return errors.New("previous run still active")
@@ -475,6 +507,11 @@ func (s *Service) runTask(ctx context.Context, task Task, force bool) error {
 	if !force && !current.Enabled {
 		return nil
 	}
+	// A run that never returns must not hold the running lock forever
+	// (R-6.1): the timeout cancels through the same context chain a manual
+	// "stop reply" uses, and the deferred delete above frees the lock.
+	ctx, cancelRun := context.WithTimeout(ctx, current.runTimeout())
+	defer cancelRun()
 	broadcaster := s.broadcaster
 	if broadcaster == nil {
 		err := errors.New("session activity broadcaster not configured")
@@ -560,6 +597,9 @@ func (s *Service) runTask(ctx context.Context, task Task, force bool) error {
 	})
 	now := time.Now().UTC()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("run timed out after %s: %w", current.runTimeout(), err)
+		}
 		broadcaster.BroadcastSessionError(current.RootID, sessionKey, err.Error(), "scheduled:"+current.ID)
 		broadcaster.BroadcastSessionDone(current.RootID, sessionKey, "scheduled:"+current.ID)
 		broadcaster.BroadcastScheduledTaskFailed(current.RootID, current.ID, current.Name, sessionKey, err.Error())

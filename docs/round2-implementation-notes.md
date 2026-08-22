@@ -193,3 +193,15 @@
 - `DiagnosticsPanel` 第三分区 `StorageSection`：范围下拉（全部项目 / 单 root）+ 导出按钮 + 凭据 checkbox（默认勾选，勾选态显示橙色明示提醒"备份包将含明文凭据，请妥善保管！"）+ 存储体检按钮 → 七行报表（会话数/五类体积/垃圾汇总），有垃圾时出现"清理垃圾文件"按钮（`window.confirm` 二次确认，文案说明只删孤儿、journal 走安全回收），清理后自动刷新报表并展示结果（含未能回收的 journal 数提示）。i18n 双语 22 词条。
 
 **验证记录**：vm 沙箱补 `backupExportQuery` 3 断言；typecheck + 全部 web 测试绿。端到端（沙箱后端 + 真实 UI）：① 凭据开关解包检查——`include_credentials=0` 的包内凭据类文件为零、`=1` 时在场（curl 导出 + python 解包断言）；② UI 全流程——面板第三分区渲染（下拉/按钮/提醒文案）、存储体检检出预置的 1 个孤儿 debug、清理确认后磁盘文件真实删除、报表刷新为"无"、结果文案正确（截图 `verify-t15/03、04`）；③ 导出按钮点击无报错无失败提示。提醒文案已在截图中呈现，供人工过目。手机实机完整导出并入发布前手工 checklist。
+
+## T20　scheduled 执行超时 + 跳过不覆盖错误【R-6.1 / R-6.2】
+
+**实现**（2026-08-22）：
+
+- Task 结构加 `timeout_minutes`（omitempty，0 = 默认 60 分钟）与 `last_skipped_at`（omitempty）——旧 `scheduled-agent-tasks.json` 直接可读。超时包在 **`runTask` 内部**（`context.WithTimeout` 包住会话创建 + SendMessage）而非仅 cron 回调：手动 RunNow 同样受保护（它也持 running 锁，卡死同样会永久停摆）；取消经与手动"停止回复"相同的 SendMessage ctx 链传播（设计 §9）。超时后 defer 释放 running 锁，`LastError` 转译为可读的 "run timed out after X"。
+- 跳过路径只写 `LastSkippedAt`（不再动 `LastRunAt`/`LastError`）——上一次真实失败原因在 UI 上保留。
+- `SaveInput` 增 `timeout_minutes`（负数拒绝），Create/Update 落字段。
+- **可测性改造**：`Service.usecase` 从具体 `*usecase.Service` 收窄为 `taskRunnerUsecase` 接口（仅 CreateSession/SendMessage 两方法，生产赋值不变）；`runTimeoutUnit` 包级变量作为测试缝（生产恒为 time.Minute）。
+- 前端：Dialog 表单加"单次执行超时（分钟）"数字输入（留空 = 默认 60）；任务行在上次/下次运行下方以次级信息展示"上次因仍在运行而跳过：<时间>"。i18n 双语 3 词条。
+
+**验证记录**：三例后端测试——真实挂起的 SendMessage（阻塞至 ctx.Done）在 50ms 缩放超时后返回、running 锁释放、LastError 含 "timed out"、下一次触发正常执行（R-6.1 验收的直接模拟）；预置真实失败 + running 锁后跳过：LastError 保留 "real failure"、LastSkippedAt 写入（R-6.2 验收）；旧格式任务文件加载兼容（新字段零值、默认超时 60m）。Go 全量 + typecheck + web 全量绿。

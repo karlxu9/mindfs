@@ -26,6 +26,7 @@ type FormState = {
   fast_service: "" | "on" | "off";
   prompt: string;
   new_session_cron: string;
+  timeout_minutes: string;
 };
 
 type Props = {
@@ -54,6 +55,7 @@ const emptyForm = (agent = ""): FormState => ({
   fast_service: "",
   prompt: "",
   new_session_cron: "",
+  timeout_minutes: "",
 });
 
 function formatTime(value: string | undefined, locale: Locale, neverRun: string): string {
@@ -153,6 +155,7 @@ function taskToForm(task: ScheduledAgentTask): FormState {
     fast_service: task.fast_service || "",
     prompt: task.prompt || "",
     new_session_cron: task.new_session_cron || "",
+    timeout_minutes: task.timeout_minutes ? String(task.timeout_minutes) : "",
   };
 }
 
@@ -510,6 +513,7 @@ export function ScheduledAgentTaskDialog({
         fast_service: form.fast_service,
         prompt: form.prompt,
         new_session_cron: form.new_session_cron,
+        timeout_minutes: Math.max(0, parseInt(form.timeout_minutes, 10) || 0),
       };
       if (view === "edit" && selected) {
         await updateScheduledAgentTask(selected.id, payload);
@@ -772,6 +776,11 @@ export function ScheduledAgentTaskDialog({
                 <span>{t("scheduled.lastRun", { time: formatTime(task.last_run_at, locale, t("scheduled.neverRun")) })}</span>
                 <span>{t("scheduled.nextRun", { time: formatTime(task.next_run_at, locale, t("scheduled.neverRun")) })}</span>
               </div>
+              {task.last_skipped_at ? (
+                <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-secondary)", opacity: 0.85 }}>
+                  {t("scheduled.lastSkipped", { time: formatTime(task.last_skipped_at, locale, "") })}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -842,6 +851,28 @@ export function ScheduledAgentTaskDialog({
           </>
         }
       />
+      <label
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          fontSize: 12,
+          color: "var(--text-secondary)",
+        }}
+      >
+        {t("scheduled.timeoutLabel")}
+        <input
+          className="scheduled-agent-task-input"
+          type="number"
+          min={0}
+          value={form.timeout_minutes}
+          onChange={(event) =>
+            setForm((prev) => ({ ...prev, timeout_minutes: event.target.value }))
+          }
+          placeholder={t("scheduled.timeoutPlaceholder")}
+          style={fieldStyle}
+        />
+      </label>
       <label
         style={{
           display: "flex",
