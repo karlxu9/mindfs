@@ -4,12 +4,16 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"mindfs/server/internal/api/usecase"
 	"mindfs/server/internal/backup"
+
+	"github.com/go-chi/chi/v5"
 )
 
 // handleBackupExport streams a backup archive (R-5.1). Parameters travel in
@@ -101,4 +105,28 @@ func (h *HTTPHandler) handleStorageCleanup(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	respondJSON(w, http.StatusOK, result)
+}
+
+// handleSessionExportMarkdown downloads one session as a Markdown file
+// (R-8.1). Like the other binary/file downloads it authenticates with the
+// request proof instead of the JSON-encrypting wrapper.
+func (h *HTTPHandler) handleSessionExportMarkdown(w http.ResponseWriter, r *http.Request) {
+	if _, err := h.requireRequestProof(r); err != nil {
+		respondError(w, http.StatusUnauthorized, err)
+		return
+	}
+	rootID := strings.TrimSpace(r.URL.Query().Get("root"))
+	key := strings.TrimSpace(chi.URLParam(r, "key"))
+	if rootID == "" || key == "" {
+		respondError(w, http.StatusBadRequest, errors.New("root and key required"))
+		return
+	}
+	out, err := h.service().ExportSessionMarkdown(r.Context(), usecase.ExportSessionMarkdownInput{RootID: rootID, Key: key})
+	if err != nil {
+		respondError(w, http.StatusNotFound, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename*=UTF-8''`+url.PathEscape(out.Filename))
+	_, _ = io.WriteString(w, out.Content)
 }

@@ -312,6 +312,7 @@ export const enUS = {
   "sessionList.syncing": "Syncing",
   "sessionList.sync": "Sync",
   "sessionList.rename": "Rename",
+  "sessionList.exportMarkdown": "Export Markdown",
   "sessionList.replying": "Replying",
   "sessionList.menu": "Session menu",
   "sessionList.searchCurrentProject": "Search current project sessions",

@@ -1985,3 +1985,30 @@ export async function syncSession(
     hasDelta: persistedDelta.length > 0,
   };
 }
+
+// Downloads one session as a Markdown file through the browser's native
+// download flow (R-8.1).
+export async function downloadSessionMarkdown(rootId: string, sessionKey: string): Promise<void> {
+  const params = new URLSearchParams({ root: rootId });
+  const response = await protectedFetch(
+    appURL(`/api/sessions/${encodeURIComponent(sessionKey)}/export/markdown`, params),
+  );
+  if (!response.ok) {
+    throw new Error(`export failed: ${response.status}`);
+  }
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = /filename\*=UTF-8''([^;]+)/.exec(disposition);
+  const filename = match ? decodeURIComponent(match[1]) : "session.md";
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
+}

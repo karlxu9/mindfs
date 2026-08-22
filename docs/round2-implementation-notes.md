@@ -226,3 +226,13 @@
 - `scripts/notify-example.ps1`（Windows Runtime toast，零第三方依赖）与 `scripts/notify-example.sh`（notify-send / osascript 分支 + stderr 兜底）。
 
 **验证记录**：notify 包双语快照测试（en 的 done/ask_user/error/scheduled_failed/unnamed 五词 + zh 默认 + 未知语言回落）；`.ps1` 本机真实运行 exit 0（桌面 toast 已弹出）；`.sh` 语法检查 + stderr 兜底分支实测输出正确，Linux/macOS 真机运行列入手工 checklist。Go 全量 + typecheck + web 全量绿。
+
+## T23　单会话导出 Markdown【R-8，P2】
+
+**实现**（2026-08-22）：
+
+- usecase 层新文件 `session_export.go`：`renderSessionMarkdown` 纯函数——`# 会话名` + 出处引用行 + 每轮 `---` 分隔、`## 用户` / `## Agent（agent · model）` 带本地时间的标题、正文原样；该轮的 tool call 折叠为一个引用块（`> **工具调用**（N 项）` + 每条 `> - ✓/✗/• 标题 \`首个文件\``，标题截断 120 字符）；Thought/Plan/Todo 不导出（守住"给笔记软件看"的范围）。图片附件按 PRD 的"明确标注缺失"选项处理：`![...](…upload/…)` 引用原样保留，正文后追加 `> ⚠ 图片附件未随导出：\`路径\``（单 .md 文件下载不携带附件，这是两个允许选项中更简单可靠的）。文件名取会话名（非法字符转 `_`、80 字符截断）。
+- `GET /api/sessions/{key}/export/markdown?root=<id>`：文本下载（`filename*=UTF-8''` 编码中文文件名），鉴权对齐既有下载端点用 `requireRequestProof`。
+- 前端：会话菜单在"重命名"与"删除"之间加"导出 Markdown"项（下载图标），经 `downloadSessionMarkdown`（blob + 原生下载，同备份导出模式）。i18n 双语 1 词条。
+
+**验证记录**：转换器 4 例单测——多轮 + toolcall（轮次顺序、标题格式、引用块行、✓/✗ 状态、思考不泄漏）、图片缺失标注、空会话、文件名净化。Go 全量 + typecheck + web 全量绿。产物为纯标准 Markdown（ATX 标题/引用块/分隔线），Typora/Obsidian 实际打开抽验列入手工 checklist。

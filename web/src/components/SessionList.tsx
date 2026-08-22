@@ -8,6 +8,7 @@ import {
   buildAgentGroups,
   normalizeAgentGroup,
 } from "../services/sessionAgentGroups";
+import { downloadSessionMarkdown } from "../services/session";
 
 export type SessionType = "chat" | "plugin" | "command";
 
@@ -2306,6 +2307,37 @@ function SessionCard({
                 <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
               </svg>
               {t("sessionList.rename")}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen(false);
+                void downloadSessionMarkdown(session.root_id || "", session.key).catch((err) => {
+                  console.error("[session] markdown export failed", err);
+                });
+              }}
+              style={{
+                ...menuItemStyle,
+                color: "var(--text-primary)",
+              }}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              {t("sessionList.exportMarkdown")}
             </button>
             <button
               type="button"
