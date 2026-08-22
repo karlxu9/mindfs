@@ -78,6 +78,18 @@ func (s *TaskStore) Close() error {
 	return s.db.Close()
 }
 
+// SnapshotTo writes a consistent copy of the kanban DB to targetPath via
+// VACUUM INTO; the target must not exist yet. The store's single connection
+// serializes it with writers (R-5.1).
+func (s *TaskStore) SnapshotTo(ctx context.Context, targetPath string) error {
+	targetPath = strings.TrimSpace(targetPath)
+	if targetPath == "" {
+		return errors.New("snapshot target path required")
+	}
+	_, err := s.db.ExecContext(ctx, "VACUUM INTO ?", targetPath)
+	return err
+}
+
 func (s *TaskStore) migrate() error {
 	_, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS tasks (

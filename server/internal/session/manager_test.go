@@ -687,3 +687,76 @@ func TestDeleteSessionRemovesAllSessionFiles(t *testing.T) {
 		t.Fatalf("delete bare session: %v", err)
 	}
 }
+
+// SnapshotTo must produce an independently openable, complete copy while the
+// manager keeps writing through its single connection (R-5.1).
+func TestSnapshotToProducesConsistentCopyUnderConcurrentWrites(t *testing.T) {
+	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
+	manager := newTestManager(t, root)
+	for i := 0; i < 20; i++ {
+		if _, err := manager.Create(context.Background(), CreateInput{Type: TypeChat, Name: "seed"}); err != nil {
+			t.Fatalf("seed create %d: %v", i, err)
+		}
+	}
+
+	stop := make(chan struct{})
+	writerDone := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				writerDone <- nil
+				return
+			default:
+			}
+			if _, err := manager.Create(context.Background(), CreateInput{Type: TypeChat, Name: "concurrent"}); err != nil {
+				writerDone <- err
+				return
+			}
+		}
+	}()
+
+	snapshotPath := filepath.Join(t.TempDir(), "snapshot.db")
+	err := manager.SnapshotTo(context.Background(), snapshotPath)
+	close(stop)
+	if werr := <-writerDone; werr != nil {
+		t.Fatalf("concurrent writer failed: %v", werr)
+	}
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", snapshotPath)
+	if err != nil {
+		t.Fatalf("open snapshot: %v", err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&count); err != nil {
+		t.Fatalf("count snapshot sessions: %v", err)
+	}
+	if count < 20 {
+		t.Fatalf("snapshot has %d sessions, want at least the 20 seeded", count)
+	}
+	// The live DB keeps working after the snapshot.
+	if _, err := manager.Create(context.Background(), CreateInput{Type: TypeChat, Name: "after"}); err != nil {
+		t.Fatalf("create after snapshot: %v", err)
+	}
+}
+
+// VACUUM INTO refuses an existing target; the API must surface that error
+// instead of silently overwriting.
+func TestSnapshotToRejectsExistingTarget(t *testing.T) {
+	root := rootfs.NewRootInfo("mindfs", "mindfs", t.TempDir())
+	manager := newTestManager(t, root)
+	if _, err := manager.Create(context.Background(), CreateInput{Type: TypeChat, Name: "one"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "existing.db")
+	if err := os.WriteFile(target, []byte("occupied"), 0o644); err != nil {
+		t.Fatalf("seed target: %v", err)
+	}
+	if err := manager.SnapshotTo(context.Background(), target); err == nil {
+		t.Fatal("SnapshotTo overwrote an existing file")
+	}
+}

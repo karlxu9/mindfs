@@ -2,8 +2,10 @@ package kanban
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1552,5 +1554,46 @@ func TestNewTaskStoreRecoversInterruptedStageRuns(t *testing.T) {
 				t.Fatalf("finished run status changed to %q", run.Status)
 			}
 		}
+	}
+}
+
+// TaskStore.SnapshotTo mirrors the session manager's consistent-copy export
+// (R-5.1): independently openable, complete, and refusing existing targets.
+func TestTaskStoreSnapshotTo(t *testing.T) {
+	root := fs.NewRootInfo("root-1", "root-1", t.TempDir())
+	store, err := NewTaskStore(root)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for i := 0; i < 5; i++ {
+		if _, err := store.db.Exec(
+			`INSERT INTO stage_runs (id, task_id, stage_index, stage_name, role, status, created_at, updated_at) VALUES (?, 'task-1', 0, 'dev', 'agent', ?, ?, ?)`,
+			fmt.Sprintf("run-%d", i), StageStatusSuccess, now, now,
+		); err != nil {
+			t.Fatalf("seed run %d: %v", i, err)
+		}
+	}
+
+	snapshotPath := filepath.Join(t.TempDir(), "kanban-snapshot.db")
+	if err := store.SnapshotTo(context.Background(), snapshotPath); err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	db, err := sql.Open("sqlite", snapshotPath)
+	if err != nil {
+		t.Fatalf("open snapshot: %v", err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM stage_runs`).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 5 {
+		t.Fatalf("snapshot rows = %d, want 5", count)
+	}
+
+	if err := store.SnapshotTo(context.Background(), snapshotPath); err == nil {
+		t.Fatal("SnapshotTo overwrote an existing file")
 	}
 }

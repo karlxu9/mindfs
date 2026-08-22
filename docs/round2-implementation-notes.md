@@ -155,3 +155,9 @@
 - **容器选择**：设计提到"BottomSheet/对话框复用现有容器"，实际用了轻量遮罩面板而非 BottomSheet——BottomSheet 与会话抽屉状态机耦合（isDrawerOpen/interactionMode），复用它需要接入抽屉状态管理，反而更重；遮罩面板在两档宽度自适应，行为等价。
 
 **验证记录**：vm 沙箱测试 `diagnostics.test.mjs`（钳制/解析/格式化 17 断言，vm 跨 context 对象用 JSON round-trip 规避原型不等）；typecheck + 全部 web 测试绿。UI 真实验证（vite dev 代理到含新端点的沙箱后端 + Chrome）：桌面 1280px 与移动 390px 两档截图（`verify-t15/`，未入库），菜单项入口、三分区、真实日志渲染、等宽横向滚动全部正常。
+
+## T16　sqlite 一致性快照能力【R-5.1 前置】
+
+**实现**（2026-08-22）：`session.Manager.SnapshotTo(ctx, targetPath)` 与 `kanban.TaskStore.SnapshotTo(ctx, targetPath)`——均为 `VACUUM INTO ?`（绑定参数，Windows 反斜杠路径无拼接风险），经各自的单连接（`SetMaxOpenConns(1)`）执行、天然与写互斥；目标已存在时 sqlite 自身报错，不覆盖。失败降级（copy + manifest 标注）留 T17。
+
+**验证记录**：session 侧并发竞态测试（20 条预置 + 后台 goroutine 持续 Create 期间快照：写方无错、快照独立打开行数 ≥20、快照后原库继续可写）+ 已存在目标拒绝；kanban 侧 5 行快照行数校验 + 拒绝覆盖。`VACUUM INTO` 参数绑定在 modernc.org/sqlite 下实测可用。全仓测试绿。

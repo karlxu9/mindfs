@@ -1096,6 +1096,26 @@ func (m *Manager) deleteSessionUnsafe(key string) error {
 	return nil
 }
 
+// SnapshotTo writes a consistent copy of the session-list DB to targetPath
+// via VACUUM INTO. The target must be a path that does not exist yet. It runs
+// on the manager's single connection (SetMaxOpenConns(1)), so it serializes
+// with concurrent writers instead of racing them — exports during active
+// sessions stay uncorrupted (R-5.1).
+func (m *Manager) SnapshotTo(ctx context.Context, targetPath string) error {
+	targetPath = strings.TrimSpace(targetPath)
+	if targetPath == "" {
+		return errors.New("snapshot target path required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	db, err := m.ensureSessionMetaDBUnsafe()
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, "VACUUM INTO ?", targetPath)
+	return err
+}
+
 func (m *Manager) Shutdown() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
