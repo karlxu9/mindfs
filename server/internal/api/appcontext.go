@@ -1035,6 +1035,7 @@ func (s *AppContext) notifySessionError(rootID, sessionKey, message, requestID s
 		SessionTitle: sessionTitle,
 		Summary:      message,
 		EventID:      eventID,
+		Lang:         s.notifyLang(),
 	})
 	s.notifyPayload(context.Background(), eventID, payload)
 }
@@ -1102,6 +1103,7 @@ func (s *AppContext) notifySessionDone(rootID, sessionKey, requestID string, pen
 		SessionTitle: sessionTitle,
 		Summary:      summary,
 		EventID:      eventID,
+		Lang:         s.notifyLang(),
 	})
 	s.notifyPayload(context.Background(), eventID, payload)
 }
@@ -1122,6 +1124,7 @@ func (s *AppContext) notifyAskUserIfNeeded(rootID, sessionKey string, event *Str
 		SessionTitle: s.sessionTitle(rootID, sessionKey),
 		Summary:      askUserSummary(toolCall),
 		EventID:      "session.ask_user:" + rootID + ":" + sessionKey + ":" + toolCall.CallID,
+		Lang:         s.notifyLang(),
 	})
 	s.notifyPayload(context.Background(), notify.EventID(payload), payload)
 }
@@ -1211,8 +1214,18 @@ func (s *AppContext) notifyScheduled(rootID, taskID, taskName, sessionKey, summa
 		Error:      message,
 		Success:    success,
 		EventID:    eventID,
+		Lang:       s.notifyLang(),
 	})
 	s.notifyPayload(context.Background(), eventID, payload)
+}
+
+// notifyLang picks the notification wording from the mirrored UI language
+// preference (R-7.1); empty means the builder's zh-CN default.
+func (s *AppContext) notifyLang() string {
+	if s == nil || s.Prefs == nil {
+		return ""
+	}
+	return s.Prefs.UILanguage()
 }
 
 func (s *AppContext) notifyPayload(ctx context.Context, eventID string, payload notify.Payload) {

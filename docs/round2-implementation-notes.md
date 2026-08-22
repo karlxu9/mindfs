@@ -214,4 +214,15 @@
 - 解析器加 `cron.Descriptor`（`@daily`/`@weekly`/`@every 1h30m` 等可保存并触发）；`decorateTask` 的 `NextRunAt`/`NextNewSessionAt` 统一转 UTC（与 Last* 口径一致，前端 `toLocaleString` 本地化）。
 - 前端：`CronEditor` 支持 descriptor 模式——值以 `@` 开头时切换为整体输入框并按 descriptor 正则整体校验（第一段输入 `@daily` 自动切换）；任务行加"执行历史（N）"折叠列表（倒序、✓/✗、时间、错误摘要截断悬停可见全文）。i18n 双语 2 词条。
 
-**验证记录**：环形淘汰边界（第 21 条挤掉最旧）；成功/失败两次执行的历史落盘断言；`@daily` 解析 + `@every 100ms` 任务经真实 cron 触发 + 装饰后 NextRunAt 为 UTC（R-6.4 验收①②的直接模拟）。Go 全量 + typecheck + web 全量绿。
+**验证记录**：环形淘汰边界（第 21 条挤掉最旧）；成功/失败两次执行的历史落盘断言；`@daily` 解析 + `@every 100ms` 任务经真实 cron 触发 + 装饰后 NextRunAt 为 UTC（R-6.4 验收①②的直接模拟）。Go 全量 + typecheck + web 全量绿。（后补：该触发测试有 cron.Stop 不等待 in-flight 的偶发 TempDir 清理竞态，已改为等待 Stop 返回的 context，-count=5 复跑稳定。）
+
+## T22　通知 i18n + notify-script 契约文档【R-7，P2】
+
+**实现**（2026-08-22）：
+
+- **前置补齐**：服务端原本不知道界面语言（前端 locale 只在 localStorage）。preferences 增 `ui_language` 字段（仅接受 zh-CN/en-US）+ `GET/PUT /api/preferences/ui-language`（沿用既有 preferences 端点样式）；前端 `I18nProvider` 在 locale 生效时 fire-and-forget 镜像到服务端（动态 import 避开 i18n↔services 循环依赖；离线/旧服务端静默降级）。
+- notify 包：`SessionNotification`/`ScheduledNotification` 加 `Lang` 字段（不破坏既有调用），包内两语言 × 7 词条映射表（done/ask_user/error/session/scheduled_done/scheduled_failed/unnamed_task），未知语言回落中文；AppContext 四个 payload 构造点经 `notifyLang()` 读偏好传入。
+- `docs/notify-script.md`：执行契约（stdin JSON、平台运行方式、10s 超时、4 并发、30 分钟去重）、payload 字段全表、4+1 事件类型表、示例用法。
+- `scripts/notify-example.ps1`（Windows Runtime toast，零第三方依赖）与 `scripts/notify-example.sh`（notify-send / osascript 分支 + stderr 兜底）。
+
+**验证记录**：notify 包双语快照测试（en 的 done/ask_user/error/scheduled_failed/unnamed 五词 + zh 默认 + 未知语言回落）；`.ps1` 本机真实运行 exit 0（桌面 toast 已弹出）；`.sh` 语法检查 + stderr 兜底分支实测输出正确，Linux/macOS 真机运行列入手工 checklist。Go 全量 + typecheck + web 全量绿。

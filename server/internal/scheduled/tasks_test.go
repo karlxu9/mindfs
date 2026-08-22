@@ -305,7 +305,10 @@ func TestCronDescriptorsParseAndFire(t *testing.T) {
 		t.Fatalf("reload with descriptor: %v", err)
 	}
 	svc.cron.Start()
-	defer svc.cron.Stop()
+	defer func() {
+		// Wait for in-flight runs, or TempDir cleanup races their writes.
+		<-svc.cron.Stop().Done()
+	}()
 	select {
 	case <-send:
 	case <-time.After(3 * time.Second):

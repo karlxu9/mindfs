@@ -339,6 +339,8 @@ func (h *HTTPHandler) Routes() http.Handler {
 	r.Put("/api/preferences/session-naming", h.protectedEndpoint(h.handleSessionNamingPreferencePut))
 	r.Get("/api/preferences/idle-session-resource-release", h.protectedEndpoint(h.handleIdleSessionResourceReleasePreferenceGet))
 	r.Put("/api/preferences/idle-session-resource-release", h.protectedEndpoint(h.handleIdleSessionResourceReleasePreferencePut))
+	r.Get("/api/preferences/ui-language", h.protectedEndpoint(h.handleUILanguagePreferenceGet))
+	r.Put("/api/preferences/ui-language", h.protectedEndpoint(h.handleUILanguagePreferencePut))
 	r.Get("/api/preferences/new-project-meta-location", h.protectedEndpoint(h.handleNewProjectMetaLocationPreferenceGet))
 	r.Put("/api/preferences/new-project-meta-location", h.protectedEndpoint(h.handleNewProjectMetaLocationPreferencePut))
 	r.Get("/api/replying-sessions", h.protectedEndpoint(h.handleReplyingSessions))
@@ -1332,6 +1334,35 @@ type idleSessionResourceReleasePreferenceRequest struct {
 
 type newProjectMetaLocationPreferenceRequest struct {
 	Location string `json:"location"`
+}
+
+func (h *HTTPHandler) handleUILanguagePreferenceGet(w http.ResponseWriter, _ *http.Request) {
+	if h.AppContext == nil || h.AppContext.GetPreferences() == nil {
+		respondError(w, http.StatusServiceUnavailable, errInvalidRequest("preferences not configured"))
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"language": h.AppContext.GetPreferences().UILanguage()})
+}
+
+// handleUILanguagePreferencePut mirrors the web UI locale into server
+// preferences so notification wording follows it (R-7.1).
+func (h *HTTPHandler) handleUILanguagePreferencePut(w http.ResponseWriter, r *http.Request) {
+	if h.AppContext == nil || h.AppContext.GetPreferences() == nil {
+		respondError(w, http.StatusServiceUnavailable, errInvalidRequest("preferences not configured"))
+		return
+	}
+	var req struct {
+		Language string `json:"language"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, errInvalidRequest(err.Error()))
+		return
+	}
+	if err := h.AppContext.GetPreferences().UpdateUILanguage(req.Language); err != nil {
+		respondError(w, http.StatusBadRequest, errInvalidRequest(err.Error()))
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"language": h.AppContext.GetPreferences().UILanguage()})
 }
 
 func (h *HTTPHandler) handleNewProjectMetaLocationPreferenceGet(w http.ResponseWriter, _ *http.Request) {

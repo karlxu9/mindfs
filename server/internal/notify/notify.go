@@ -29,6 +29,9 @@ type SessionNotification struct {
 	SessionTitle string
 	Summary      string
 	EventID      string
+	// Lang selects the wording ("zh-CN" default, "en-US"); the server has no
+	// i18n framework, so the word table lives in this package (R-7.1).
+	Lang string
 }
 
 type ScheduledNotification struct {
@@ -41,6 +44,48 @@ type ScheduledNotification struct {
 	Error      string
 	Success    bool
 	EventID    string
+	Lang       string
+}
+
+type wordKey string
+
+const (
+	wordDone           wordKey = "done"
+	wordAskUser        wordKey = "ask_user"
+	wordError          wordKey = "error"
+	wordSession        wordKey = "session"
+	wordScheduledDone  wordKey = "scheduled_done"
+	wordScheduledFail  wordKey = "scheduled_failed"
+	wordUnnamedTask    wordKey = "unnamed_task"
+)
+
+var notifyWords = map[string]map[wordKey]string{
+	"zh-CN": {
+		wordDone:          "完成",
+		wordAskUser:       "需要输入",
+		wordError:         "出错",
+		wordSession:       "会话",
+		wordScheduledDone: "定时任务完成",
+		wordScheduledFail: "定时任务失败",
+		wordUnnamedTask:   "未命名任务",
+	},
+	"en-US": {
+		wordDone:          "Done",
+		wordAskUser:       "Input needed",
+		wordError:         "Failed",
+		wordSession:       "Session",
+		wordScheduledDone: "Scheduled task done",
+		wordScheduledFail: "Scheduled task failed",
+		wordUnnamedTask:   "Unnamed task",
+	},
+}
+
+func word(lang string, key wordKey) string {
+	table, ok := notifyWords[strings.TrimSpace(lang)]
+	if !ok {
+		table = notifyWords["zh-CN"]
+	}
+	return table[key]
 }
 
 func BuildSessionPayload(in SessionNotification) Payload {
@@ -48,15 +93,15 @@ func BuildSessionPayload(in SessionNotification) Payload {
 	if kind == "" {
 		kind = "session.done"
 	}
-	status := "完成"
+	status := word(in.Lang, wordDone)
 	switch kind {
 	case "session.ask_user":
-		status = "需要输入"
+		status = word(in.Lang, wordAskUser)
 	case "session.error":
-		status = "出错"
+		status = word(in.Lang, wordError)
 	}
 	root := firstNonEmpty(in.RootTitle, in.RootID, "MindFS")
-	sessionTitle := firstNonEmpty(in.SessionTitle, "会话")
+	sessionTitle := firstNonEmpty(in.SessionTitle, word(in.Lang, wordSession))
 	title := fmt.Sprintf("%s · %s · %s", root, sessionTitle, status)
 	body := truncateRunes(strings.TrimSpace(in.Summary), BodyMaxRunes)
 	tag := fmt.Sprintf("mindfs:%s:%s:%s", kind, in.RootID, in.SessionKey)
@@ -85,17 +130,17 @@ func BuildSessionPayload(in SessionNotification) Payload {
 
 func BuildScheduledPayload(in ScheduledNotification) Payload {
 	root := firstNonEmpty(in.RootTitle, in.RootID, "MindFS")
-	status := "定时任务完成"
+	status := word(in.Lang, wordScheduledDone)
 	kind := "scheduled.done"
 	body := strings.TrimSpace(in.Summary)
 	renotify := false
 	if !in.Success {
-		status = "定时任务失败"
+		status = word(in.Lang, wordScheduledFail)
 		kind = "scheduled.failed"
 		body = strings.TrimSpace(in.Error)
 		renotify = true
 	}
-	taskName := firstNonEmpty(in.TaskName, "未命名任务")
+	taskName := firstNonEmpty(in.TaskName, word(in.Lang, wordUnnamedTask))
 	if body == "" {
 		body = taskName
 	} else {

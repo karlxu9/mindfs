@@ -96,6 +96,19 @@ export function I18nProvider({ children }: { children: React.ReactNode }): React
 
   React.useEffect(() => {
     applyDocumentLocale(locale);
+    // Mirror the locale into server preferences so notification wording
+    // follows the UI language (R-7.1). Best-effort: offline or older servers
+    // simply keep their default. Dynamic import avoids an import cycle with
+    // the services layer.
+    void Promise.all([import("../services/api"), import("../services/base")])
+      .then(([api, base]) =>
+        api.protectedJSON(base.appPath("/api/preferences/ui-language"), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ language: locale }),
+        }),
+      )
+      .catch(() => {});
   }, [locale]);
 
   React.useEffect(() => {

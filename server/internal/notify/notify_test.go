@@ -61,3 +61,32 @@ func TestBuildSessionPayloadKeepsDoneAndAskUserStatus(t *testing.T) {
 		t.Fatal("ask_user RequireInteraction = false, want true")
 	}
 }
+
+// The wording follows the mirrored UI language; unknown or empty falls back
+// to Chinese (R-7.1).
+func TestBuildPayloadsSpeakBothLanguages(t *testing.T) {
+	zh := BuildSessionPayload(SessionNotification{Type: "session.done", RootID: "r", SessionKey: "s"})
+	if !strings.HasSuffix(zh.Title, "完成") {
+		t.Fatalf("default zh title = %q", zh.Title)
+	}
+	en := BuildSessionPayload(SessionNotification{Type: "session.done", RootID: "r", SessionKey: "s", Lang: "en-US"})
+	if !strings.HasSuffix(en.Title, "Done") {
+		t.Fatalf("en done title = %q", en.Title)
+	}
+	enAsk := BuildSessionPayload(SessionNotification{Type: "session.ask_user", RootID: "r", SessionKey: "s", Lang: "en-US"})
+	if !strings.HasSuffix(enAsk.Title, "Input needed") {
+		t.Fatalf("en ask title = %q", enAsk.Title)
+	}
+	enErr := BuildSessionPayload(SessionNotification{Type: "session.error", RootID: "r", SessionKey: "s", Lang: "en-US"})
+	if !strings.HasSuffix(enErr.Title, "Failed") {
+		t.Fatalf("en error title = %q", enErr.Title)
+	}
+	enSched := BuildScheduledPayload(ScheduledNotification{RootID: "r", TaskID: "t1", Success: false, Error: "x", Lang: "en-US"})
+	if !strings.Contains(enSched.Title, "Scheduled task failed") || !strings.Contains(enSched.Body, "Unnamed task") {
+		t.Fatalf("en scheduled = %q / %q", enSched.Title, enSched.Body)
+	}
+	unknown := BuildSessionPayload(SessionNotification{Type: "session.done", RootID: "r", SessionKey: "s", Lang: "fr-FR"})
+	if !strings.HasSuffix(unknown.Title, "完成") {
+		t.Fatalf("unknown lang should fall back to zh, got %q", unknown.Title)
+	}
+}

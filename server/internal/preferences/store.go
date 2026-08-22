@@ -28,6 +28,35 @@ type UserPreferences struct {
 	SessionNaming                   SessionNamingDefaults    `json:"session_naming,omitempty"`
 	IdleSessionResourceReleaseHours int                      `json:"idle_session_resource_release_hours,omitempty"`
 	NewProjectMetaLocation          string                   `json:"new_project_meta_location,omitempty"`
+	// UILanguage mirrors the web UI locale so server-generated notifications
+	// speak the same language (R-7.1).
+	UILanguage string `json:"ui_language,omitempty"`
+}
+
+func (s *Store) UILanguage() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.data.UILanguage
+}
+
+func (s *Store) UpdateUILanguage(lang string) error {
+	if s == nil {
+		return nil
+	}
+	lang = strings.TrimSpace(lang)
+	if lang != "zh-CN" && lang != "en-US" {
+		return errors.New("invalid ui language")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data.UILanguage == lang {
+		return nil
+	}
+	s.data.UILanguage = lang
+	return s.saveLocked()
 }
 
 func (s *Store) NewProjectMetaLocation() string {
