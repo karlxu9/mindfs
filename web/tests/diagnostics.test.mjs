@@ -52,3 +52,9 @@ assert.equal(formatBytes(512), "512 B");
 assert.equal(formatBytes(2048), "2.0 KB");
 assert.equal(formatBytes(5 * 1024 * 1024), "5.0 MB");
 assert.equal(formatBytes(-1), "-");
+
+// backupExportQuery pins the query contract with the backend handler.
+const { backupExportQuery } = sandbox.exports;
+assert.equal(backupExportQuery("all", "ignored", true), "/api/backup/export?scope=all&include_credentials=1");
+assert.equal(backupExportQuery("all", "", false), "/api/backup/export?scope=all&include_credentials=0");
+assert.equal(backupExportQuery("root", "proj a", true), "/api/backup/export?scope=root&root=proj%20a&include_credentials=1");

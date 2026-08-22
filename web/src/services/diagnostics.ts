@@ -1,5 +1,5 @@
 import { appPath } from "./base";
-import { protectedJSON } from "./api";
+import { protectedFetch, protectedJSON } from "./api";
 
 // Diagnostics + log tail service (R-4.2 / R-4.3). Types mirror the backend
 // payloads in server/internal/api/{diagnostics,logs}.go.
@@ -89,4 +89,72 @@ export async function fetchLogTail(lines = LOG_TAIL_DEFAULT_LINES): Promise<LogT
     appPath(`/api/logs?lines=${clampLogLines(lines)}`),
   );
   return normalizeLogTail(payload);
+}
+
+// Storage checkup + backup export (R-5.3 / R-5.4). Types mirror
+// server/internal/backup/{storage,backup}.go.
+
+export type StorageReport = {
+  root_id: string;
+  sessions_count: number;
+  exchange_bytes: number;
+  aux_bytes: number;
+  debug_bytes: number;
+  db_bytes: number;
+  upload_bytes: number;
+  orphan_debug_files: string[];
+  journal_files: string[];
+};
+
+export type CleanupResult = {
+  removed_debug_files: string[];
+  reclaimed_journals: string[];
+  remaining_journals: string[];
+};
+
+// backupExportQuery is pure so the vm sandbox test can pin the parameter
+// contract with the backend.
+export function backupExportQuery(scope: "root" | "all", rootId: string, includeCredentials: boolean): string {
+  const parts = [`scope=${scope}`];
+  if (scope === "root" && rootId) {
+    parts.push(`root=${encodeURIComponent(rootId)}`);
+  }
+  parts.push(`include_credentials=${includeCredentials ? "1" : "0"}`);
+  return `/api/backup/export?${parts.join("&")}`;
+}
+
+export async function fetchStorageReport(rootId: string): Promise<StorageReport> {
+  return protectedJSON<StorageReport>(appPath(`/api/storage/report?root=${encodeURIComponent(rootId)}`));
+}
+
+export async function cleanupStorage(rootId: string): Promise<CleanupResult> {
+  return protectedJSON<CleanupResult>(appPath(`/api/storage/cleanup?root=${encodeURIComponent(rootId)}`), {
+    method: "POST",
+  });
+}
+
+// downloadBackup fetches the archive and hands it to the browser's native
+// download flow (works in the mobile PWA too).
+export async function downloadBackup(scope: "root" | "all", rootId: string, includeCredentials: boolean): Promise<void> {
+  const response = await protectedFetch(appPath(backupExportQuery(scope, rootId, includeCredentials)), {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(`export failed: ${response.status}`);
+  }
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const filename = match ? match[1] : "mindfs-backup.zip";
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
 }

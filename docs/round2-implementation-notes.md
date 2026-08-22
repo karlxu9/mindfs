@@ -184,3 +184,12 @@
 - 接线：`AppContext.StorageReport/StorageCleanup`（活跃 keys 经 `ListMetas`）+ usecase `storageInspector` 可选接口 + `GET /api/storage/report` / `POST /api/storage/cleanup` 两条 protectedEndpoint 路由（JSON 响应，正常走加密封装）。
 
 **验证记录**：报表测试逐字节与写入量对账（五类各一文件 + 活跃/孤儿 debug 各一 + journal），活跃 key 的 debug 不误报孤儿；清理测试用真实 sqlite（3 行数据）+ 伪造 journal——sqlite 打开时自动丢弃无效 journal（先以独立程序实验确认该行为），断言 journal 消失、3 行数据完好、活跃 debug 未被误删、孤儿被清。全仓测试绿。
+
+## T19　前端备份/体检区【R-5.4 前端】
+
+**实现**（2026-08-22）：
+
+- `diagnostics.ts` 增：`StorageReport`/`CleanupResult` 类型、`fetchStorageReport`/`cleanupStorage`、`backupExportQuery`（纯函数，vm 可测，钉住与后端的 query 契约；手拼 + `encodeURIComponent` 而非 `URLSearchParams`——后者在 vm 沙箱不可用）、`downloadBackup`（`protectedFetch` 拿 blob → objectURL + anchor.click 走浏览器原生下载，移动端 PWA 兼容；文件名取自 Content-Disposition）。
+- `DiagnosticsPanel` 第三分区 `StorageSection`：范围下拉（全部项目 / 单 root）+ 导出按钮 + 凭据 checkbox（默认勾选，勾选态显示橙色明示提醒"备份包将含明文凭据，请妥善保管！"）+ 存储体检按钮 → 七行报表（会话数/五类体积/垃圾汇总），有垃圾时出现"清理垃圾文件"按钮（`window.confirm` 二次确认，文案说明只删孤儿、journal 走安全回收），清理后自动刷新报表并展示结果（含未能回收的 journal 数提示）。i18n 双语 22 词条。
+
+**验证记录**：vm 沙箱补 `backupExportQuery` 3 断言；typecheck + 全部 web 测试绿。端到端（沙箱后端 + 真实 UI）：① 凭据开关解包检查——`include_credentials=0` 的包内凭据类文件为零、`=1` 时在场（curl 导出 + python 解包断言）；② UI 全流程——面板第三分区渲染（下拉/按钮/提醒文案）、存储体检检出预置的 1 个孤儿 debug、清理确认后磁盘文件真实删除、报表刷新为"无"、结果文案正确（截图 `verify-t15/03、04`）；③ 导出按钮点击无报错无失败提示。提醒文案已在截图中呈现，供人工过目。手机实机完整导出并入发布前手工 checklist。
