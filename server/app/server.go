@@ -92,6 +92,14 @@ func Start(ctx context.Context, addr string, opts StartOptions) error {
 	projectscan.Run(registry, prefs)
 	projectscan.StartLoop(ctx, registry, prefs)
 
+	// services is assigned further down; its close action registers first so
+	// the per-root sqlite handles and watchers outlive every other closer
+	// that still writes through them (agent pool, scheduled, kanban).
+	var services *api.AppContext
+	shutdown.register("app-context", func(context.Context) error {
+		return services.Close()
+	})
+
 	agentConfig, err := agent.LoadConfigWithExtra(opts.AgentConfigPath)
 	if err != nil {
 		return err
@@ -131,7 +139,7 @@ func Start(ctx context.Context, addr string, opts StartOptions) error {
 	updateSvc := update.NewService("a9gent/mindfs", opts.Version, executable, opts.Args, 10*time.Minute)
 	updateSvc.Start(ctx)
 
-	services := &api.AppContext{
+	services = &api.AppContext{
 		Dirs:   registry,
 		Agents: agentPool,
 		Prober: agentProber,
@@ -147,12 +155,18 @@ func Start(ctx context.Context, addr string, opts StartOptions) error {
 	}
 	services.Scheduled = scheduled.NewService(services, services)
 	services.Scheduled.Start(ctx)
+	shutdown.register("scheduled", func(ctx context.Context) error {
+		return services.Scheduled.Stop(ctx)
+	})
 	taskTemplates, err := kanban.NewTemplateStore()
 	if err != nil {
 		return err
 	}
 	services.Kanban = kanban.NewService(taskTemplates, services)
 	services.Kanban.SetRunner(services)
+	shutdown.register("kanban", func(context.Context) error {
+		return services.Kanban.Close()
+	})
 	githubImportSvc, err := githubimport.NewService(services)
 	if err != nil {
 		return err

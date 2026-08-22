@@ -71,3 +71,16 @@
 **实现**（2026-08-22）：`StreamHub.CloseAllClients()`——快照取全部连接后逐个发 `CloseGoingAway` 控制帧（1s 写超时）再 `Close()`，解除 hijacked 连接读循环的阻塞；`AppContext.CloseAllStreamClients()` 只在 hub 已创建时关闭（不懒建，"没有 hub 就没有要关的"）；编排器注册 `ws-clients` 步骤于 http-server 之前（LIFO 执行序：http-server → ws-clients → prober → pool）。
 
 **验证记录**：新增带 3 条真实 WS 连接的关闭测试（CloseAllClients 耗时上限断言 + 三客户端全部断开）与 hub 未创建的 no-op 断言；api、app 两包及全仓测试绿。前端重连逻辑核实：`session.ts` 的 `onclose` 不区分 close code、无条件 `scheduleReconnect()`，服务端主动断开后 UI 自动恢复有代码依据；真实重启的 UI 手工回归并入阶段 2 收尾 checklist（避免中断本机常驻服务）。
+
+## T7　AppContext / scheduled / kanban 关闭接线 + 启动侧 running 收敛
+
+**实现**（2026-08-22）：
+
+- `AppContext.Close()`：全量遍历 `roots` 释放 Watcher + Session（`ReleaseRootResources` 的全量版）。**注册顺序特例**：app-context 在 `Start` 顶部先于 agent-pool 注册（闭包捕获后赋值的 `services` 变量），使它在 LIFO 中最后执行——sqlite 句柄与 watcher 必须活过所有仍会写入它们的关闭方（pool/scheduled/kanban）。这是对"创建后注册"原则的唯一例外，root 资源本就是懒建贯穿运行期的最底层资源。
+- `scheduled.Service.Stop(ctx)`：等待 `cron.Stop()` 返回的 context，上限 5s（外部 ctx deadline 更短时以外部为准，天然可测）；`Start` 里的旁路停止协程删除，停止改由编排器负责。
+- `kanban.Service.Close()` 注册进编排器（该方法注释中"server/app 尚无人调用"的债务就此清偿）。
+- 启动侧 running 收敛落在 **`NewTaskStore` 打开时**（而非 Service 层）：`recoverInterruptedStageRuns` 把 status='running' 的 stage run 置为 **cancelled**（补 finished_at）。打开时刻本进程必然还没有任何执行中 stage（store 是每 root 单例、一切执行经它），故此时的 running 行必为上个进程残留，对强杀/断电路径同样生效。**状态值选择**：设计文档说"中断终态"未指定字符串，选用现有 `StageStatusCancelled` 而非新造 "interrupted"——前端与服务端的状态枚举处理无需任何改动，语义损失（无法区分人为取消与进程中断）对个人场景可接受，请产品复核。
+
+**执行序与设计 §2.2 表的差异**：实际 LIFO 序为 http → ws → (relay,T10) → kanban → scheduled → prober → pool → app-context；设计表为 … scheduled(4) → pool(5) → appctx(7) → kanban(8) → relay(9)。差异点：kanban 先于 scheduled/pool 关（drain 时 agent 还活着，正确）；appctx 移到最后（比设计表的 7 更安全——kanban(8) drain 中的写库不会撞上已关的句柄）；relay 提前（中继端更早感知下线，符合 §2.3 意图）。依赖关系均满足，表格顺序按实现修正。
+
+**验证记录**：kanban 收敛测试（预置 running + success 两行 → 重开 store → running 变 cancelled 且补 finished_at、success 不受扰）；`AppContext.Close` 测试（真实 session.Manager 开库后 Close，Windows 本机 `os.RemoveAll(metaDir)` 立即成功——正是 DoD 的句柄释放验证）；`scheduled.Stop` 两例（等到 300ms 内完成的 job / 对卡死 job 按 deadline 放弃并报错）。全仓测试绿。端到端：沙箱 `mindfs-server` + CTRL_BREAK，关闭序列 7 步全出现、app-context 殿后、20ms 退出 exit 0。

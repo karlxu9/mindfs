@@ -43,7 +43,24 @@ func NewTaskStore(root fs.RootInfo) (*TaskStore, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := store.recoverInterruptedStageRuns(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return store, nil
+}
+
+// recoverInterruptedStageRuns finalizes stage runs a previous process left in
+// "running" (crash, hard kill, power loss). Safe at open time: the store is a
+// per-root singleton and every stage execution goes through it, so this
+// process cannot have started any run yet — every running row is an orphan.
+func (s *TaskStore) recoverInterruptedStageRuns() error {
+	now := s.now().UTC().Format(time.RFC3339Nano)
+	_, err := s.db.Exec(
+		`UPDATE stage_runs SET status = ?, finished_at = CASE WHEN finished_at = '' THEN ? ELSE finished_at END, updated_at = ? WHERE status = ?`,
+		StageStatusCancelled, now, now, StageStatusRunning,
+	)
+	return err
 }
 
 func taskDBPath(root fs.RootInfo) (string, error) {

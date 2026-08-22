@@ -636,6 +636,35 @@ func (s *AppContext) RemoveRoot(path string) (fs.RootInfo, error) {
 	return dir, nil
 }
 
+// Close releases every root's lazily-created resources (file watcher and
+// session-manager sqlite handle). It is the full-shutdown counterpart of
+// ReleaseRootResources and must run after everything that writes through
+// those managers has stopped.
+func (s *AppContext) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	roots := make([]*RootContext, 0, len(s.roots))
+	for id, rootCtx := range s.roots {
+		roots = append(roots, rootCtx)
+		delete(s.roots, id)
+	}
+	s.mu.Unlock()
+	for _, rootCtx := range roots {
+		if rootCtx == nil {
+			continue
+		}
+		if rootCtx.Watcher != nil {
+			rootCtx.Watcher.Close()
+		}
+		if rootCtx.Session != nil {
+			_ = rootCtx.Session.Shutdown()
+		}
+	}
+	return nil
+}
+
 func (s *AppContext) ReleaseRootResources(rootID string) {
 	rootID = strings.TrimSpace(rootID)
 	if rootID == "" {

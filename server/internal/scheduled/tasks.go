@@ -138,11 +138,24 @@ func (s *Service) Start(ctx context.Context) {
 			log.Printf("[scheduled-agent] reload.error root=%s err=%v", root.ID, err)
 		}
 	}
-	go func() {
-		<-ctx.Done()
-		stopCtx := s.cron.Stop()
-		<-stopCtx.Done()
-	}()
+}
+
+// Stop halts the cron scheduler and waits up to five seconds for a job that
+// is mid-flight, so shutdown neither abandons a run silently nor hangs on it.
+// The shutdown orchestrator owns stopping now; Start no longer watches ctx.
+func (s *Service) Stop(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	stopCtx := s.cron.Stop()
+	waitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	select {
+	case <-stopCtx.Done():
+		return nil
+	case <-waitCtx.Done():
+		return errors.New("gave up waiting for in-flight scheduled job")
+	}
 }
 
 func (s *Service) List(ctx context.Context, rootID string) ([]Task, error) {

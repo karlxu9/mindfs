@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"mindfs/server/internal/fs"
 	"mindfs/server/internal/notify"
+	"mindfs/server/internal/session"
 )
 
 func TestNextSessionWorktreeNameUsesDateAndNextSequence(t *testing.T) {
@@ -124,5 +126,33 @@ func TestBroadcastSessionErrorNotifiesAndExemptsScheduled(t *testing.T) {
 	app.BroadcastSessionError("root1", "sess1", "boom", "scheduled:task-1")
 	if len(gotPayloads) != 2 {
 		t.Fatalf("notifications after scheduled error = %d, want 2 (exempt)", len(gotPayloads))
+	}
+}
+
+// AppContext.Close must release every root's sqlite handle so the meta
+// directory can be deleted right after shutdown (only observable on Windows,
+// which refuses to unlink open files).
+func TestAppContextCloseReleasesAllRootResources(t *testing.T) {
+	rootDir := t.TempDir()
+	root := fs.NewRootInfo("root-1", "root-1", rootDir)
+	manager := session.NewManager(root)
+	if _, err := manager.Create(context.Background(), session.CreateInput{Type: session.TypeChat, Name: "open-db"}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	app := &AppContext{roots: map[string]*RootContext{
+		"root-1": {Root: root, Session: manager},
+	}}
+	if err := app.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	if err := os.RemoveAll(root.MetaDir()); err != nil {
+		t.Fatalf("meta dir still locked after Close: %v", err)
+	}
+	app.mu.RLock()
+	defer app.mu.RUnlock()
+	if len(app.roots) != 0 {
+		t.Fatalf("roots map not drained: %d entries left", len(app.roots))
 	}
 }

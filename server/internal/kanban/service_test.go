@@ -1500,3 +1500,57 @@ func TestMain(m *testing.M) {
 	time.Local = time.UTC
 	os.Exit(m.Run())
 }
+
+// A hard-killed process leaves stage runs in "running"; reopening the store
+// must finalize them so the board never shows phantom in-flight work (R-1.1).
+func TestNewTaskStoreRecoversInterruptedStageRuns(t *testing.T) {
+	root := fs.NewRootInfo("root-1", "root-1", t.TempDir())
+	store, err := NewTaskStore(root)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := store.db.Exec(
+		`INSERT INTO stage_runs (id, task_id, stage_index, stage_name, role, status, created_at, updated_at) VALUES (?, ?, 0, 'dev', 'agent', ?, ?, ?)`,
+		"run-interrupted", "task-1", StageStatusRunning, now, now,
+	); err != nil {
+		t.Fatalf("seed running run: %v", err)
+	}
+	if _, err := store.db.Exec(
+		`INSERT INTO stage_runs (id, task_id, stage_index, stage_name, role, status, finished_at, created_at, updated_at) VALUES (?, ?, 0, 'dev', 'agent', ?, ?, ?, ?)`,
+		"run-done", "task-1", StageStatusSuccess, now, now, now,
+	); err != nil {
+		t.Fatalf("seed finished run: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	reopened, err := NewTaskStore(root)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	defer reopened.Close()
+	runs, err := reopened.ListStageRuns(context.Background(), "task-1")
+	if err != nil {
+		t.Fatalf("list runs: %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("runs = %d, want 2", len(runs))
+	}
+	for _, run := range runs {
+		switch run.ID {
+		case "run-interrupted":
+			if run.Status != StageStatusCancelled {
+				t.Fatalf("interrupted run status = %q, want cancelled", run.Status)
+			}
+			if run.FinishedAt == "" {
+				t.Fatal("interrupted run should get a finished_at")
+			}
+		case "run-done":
+			if run.Status != StageStatusSuccess {
+				t.Fatalf("finished run status changed to %q", run.Status)
+			}
+		}
+	}
+}
