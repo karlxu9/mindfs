@@ -113,8 +113,10 @@ func launchAgentContent(exe string, args []string, logPath string) string {
 		"  <key>Label</key><string>com.a9gent.mindfs</string>\n" +
 		"  <key>ProgramArguments</key>\n  <array>\n" + arguments.String() + "  </array>\n" +
 		"  <key>RunAtLoad</key><true/>\n" +
-		"  <key>StandardOutPath</key><string>" + xmlEscape(logPath) + "</string>\n" +
-		"  <key>StandardErrorPath</key><string>" + xmlEscape(logPath) + "</string>\n" +
+		// The service rotates its own log file now; launchd only catches
+		// panics and bare output in the .stderr sidecar (appended, tiny).
+		"  <key>StandardOutPath</key><string>" + xmlEscape(stderrSidecarPath(logPath)) + "</string>\n" +
+		"  <key>StandardErrorPath</key><string>" + xmlEscape(stderrSidecarPath(logPath)) + "</string>\n" +
 		"</dict>\n</plist>\n"
 }
 

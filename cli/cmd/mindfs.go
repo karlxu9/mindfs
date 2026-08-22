@@ -306,6 +306,17 @@ func main() {
 		return
 	}
 
+	// The service process owns its log file from here on: rotation happens on
+	// the write path, so long-running instances stay within the size budget
+	// (R-4.1). An explicit -f keeps logging to the terminal.
+	if daemonMode || internalRestart || internalAutoStart {
+		if writer, logErr := newRotatingLogWriter(logPath, maxLogSizeBytes, maxLogBackups); logErr != nil {
+			fmt.Fprintf(os.Stderr, "mindfs log writer error: %v\n", logErr)
+		} else {
+			log.SetOutput(writer)
+		}
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	if err := writePIDFile(pidPath); err != nil {
@@ -391,7 +402,10 @@ func servicePaths(stateDir, addr string) (string, string, error) {
 		return "", "", err
 	}
 	key := sanitizeAddrForFile(addr)
-	return filepath.Join(stateDir, "mindfs-"+key+".pid"), filepath.Join(logDir, "mindfs.log"), nil
+	// The log file carries the address like the PID file does, so two
+	// instances on different ports never interleave writes (R-4.1). The old
+	// unsuffixed mindfs.log is left in place untouched.
+	return filepath.Join(stateDir, "mindfs-"+key+".pid"), filepath.Join(logDir, "mindfs-"+key+".log"), nil
 }
 
 func sanitizeAddrForFile(addr string) string {
@@ -518,10 +532,11 @@ func startBackgroundProcess(logPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := rotateLogIfNeeded(logPath, maxLogSizeBytes, maxLogBackups); err != nil {
-		return err
-	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	// The child owns the real log file through its rotating writer; the
+	// parent only wires stdout/stderr to a small side file that catches
+	// panics and writes that bypass the log package. Truncated on start, not
+	// rotated (see stderrSidecarPath).
+	logFile, err := os.OpenFile(stderrSidecarPath(logPath), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
 	}

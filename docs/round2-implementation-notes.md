@@ -122,3 +122,15 @@
 - 鉴权矩阵单测 4 例（无 token / 错 token / 非 loopback 各 403 且不触发回调；loopback+token 202 且回调恰好触发一次）+ 未注入回调 503；编排器 finalAction 顺序测试（close → spawn，run 返回前完成）；CLI `requestShutdownViaAPI` fail-closed 测试（无 token / 无监听均 false，隔离配置目录）。全仓 `go test ./...` 绿。
 - 端到端（沙箱实例 + 真实 token + curl）：403/403/202 矩阵全对，202 后完整 9 步关闭序列（http-server → ws-clients → relay → kanban → scheduled → agent-prober → agent-pool → command-shells → app-context），62ms 退出 exit 0。
 - **待手工回归**（阶段 2 收尾 checklist，需在真实安装环境执行）：R-1.2 验收②（服务挂死时 `-stop` 超时回退 taskkill）；R-1.3 验收①②（Windows + Unix 各真实走一次 Web 触发更新，验证会话数据与 registry.json 无损）；反复 `-restart` 20 次的 R-1.1 验收⑤。
+
+## T13　运行期日志轮转 + 按地址分文件【R-4.1】
+
+**实现**（2026-08-22）：
+
+- `servicePaths`：日志文件与 PID 文件同 key（`logs/mindfs-<addr>.log`），双实例不再交叉写入；旧无后缀 `mindfs.log` 留在原地不迁移。`-status` 与启动横幅输出的路径经同一函数自动切换。
+- 新文件 `cli/cmd/rotating_writer.go`：`rotatingLogWriter`——构造时打开文件（服务运行期间路径必然存在，满足 `-status` DoD），写路径上超过 10MB 阈值即关闭句柄 → 复用既有 `rotateLogIfNeeded` 滚动 `.1/.2/.3` 链 → 重开新文件；全程互斥锁保护；带 `Close`（测试与 Windows unlink 语义需要）。
+- 日志所有权移入服务进程：`daemonMode || internalRestart || internalAutoStart` 三种非交互路径在服务分支开头 `log.SetOutput(轮转 writer)`；用户显式 `-f` 前台保持打终端。writer 构造失败降级为 stderr 告警、服务照常启动（日志不该挡启动）。
+- 父进程 `startBackgroundProcess` 不再 rotate、重定向改指 `<log>.stderr` 兜底文件（O_TRUNC 启动截断、不轮转，只承接 panic 与绕过 log 包的裸输出）；launchd plist 的 Std 两路径同样指向 `.stderr`。**平台差异**：launchd 对 std 文件是 append 语义、无法启动截断，体量极小可接受（已注释）。systemd 走 journald，不动。
+- Windows 自启动无 std 重定向（GUI 进程），服务进程自接管日志后天然正确。
+
+**验证记录**：writer 三例单测（跨阈值滚动且主文件重新计数、`.1/.2/.3` 链上限与最新内容位次、8×50 并发写安全）+ `servicePaths` 双地址分文件断言；本机 `-race` 因无 gcc 跑不了（race detector 需 cgo），并发正确性由互斥实现保证，CI 侧如有 race 配置自动覆盖。真实验证：沙箱双实例（7995/7996 端口）同时运行，各写 `mindfs-127_0_0_1_<port>.log`、内容零交叉。全仓测试绿。macOS launchd 场景（验收③）为唯一无 CI 覆盖平台，列入手工 checklist。
