@@ -141,6 +141,7 @@ import { AgentMenuList } from "./components/AgentMenuList";
 import { ActionBar } from "./components/ActionBar";
 import { CompactUploadProgress } from "./components/CompactUploadProgress";
 import { ToastContainer } from "./components/Toast";
+import { MainViewErrorBoundary, DrawerPanelErrorBoundary } from "./components/ErrorBoundary";
 import { BottomSheet } from "./components/BottomSheet";
 import { ScheduledAgentTaskDialog } from "./components/ScheduledAgentTaskDialog";
 import { TaskTemplateDialog } from "./components/TaskTemplateDialog";
@@ -14472,6 +14473,7 @@ export function App({ onGoHome }: AppProps) {
         }
         rightSidebar={sessionSidebar}
         main={
+          <MainViewErrorBoundary>
           <div
             data-onboarding="workspace"
             style={{
@@ -14517,6 +14519,7 @@ export function App({ onGoHome }: AppProps) {
               </div>
             </div>
           </div>
+          </MainViewErrorBoundary>
         }
         footer={
           <div
@@ -14608,6 +14611,7 @@ export function App({ onGoHome }: AppProps) {
               setDrawerOpenForRoot(currentRootIdRef.current, false);
             }}
           >
+            <DrawerPanelErrorBoundary>
             {drawerSessionSnapshot ? (
               <SessionViewer
                 session={drawerSessionSnapshot}
@@ -14665,6 +14669,7 @@ export function App({ onGoHome }: AppProps) {
                 {t("task.startHint")}
               </div>
             )}
+            </DrawerPanelErrorBoundary>
           </BottomSheet>
         }
       />

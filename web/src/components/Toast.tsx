@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { errorService, type AppError } from "../services/error";
+import { pruneExpiredToasts, toastExpiresAt } from "./toastModel";
 import { useI18n } from "../i18n";
 
 type ToastItem = {
   id: string;
   error: AppError;
-  expiresAt: number;
+  expiresAt: number | null;
 };
 
 export function ToastContainer(): React.ReactElement {
@@ -14,18 +15,14 @@ export function ToastContainer(): React.ReactElement {
   // Subscribe to errors
   useEffect(() => {
     const unsubscribe = errorService.subscribe((error) => {
-      // Only show non-fatal errors as toasts
-      if (error.severity === "fatal") return;
-
       const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const duration = error.severity === "error" ? 5000 : 3000;
 
       setToasts((prev) => [
         ...prev,
         {
           id,
           error,
-          expiresAt: Date.now() + duration,
+          expiresAt: toastExpiresAt(error.severity, Date.now()),
         },
       ]);
     });
@@ -38,8 +35,7 @@ export function ToastContainer(): React.ReactElement {
     if (toasts.length === 0) return;
 
     const timer = setInterval(() => {
-      const now = Date.now();
-      setToasts((prev) => prev.filter((t) => t.expiresAt > now));
+      setToasts((prev) => pruneExpiredToasts(prev, Date.now()));
     }, 500);
 
     return () => clearInterval(timer);
@@ -99,7 +95,9 @@ type ToastProps = {
 function Toast({ error, onClose, onRetry }: ToastProps): React.ReactElement {
   const { t } = useI18n();
   const bgColor =
-    error.severity === "error"
+    error.severity === "fatal"
+      ? "rgba(127, 29, 29, 0.97)"
+      : error.severity === "error"
       ? "rgba(239, 68, 68, 0.95)"
       : error.severity === "warning"
       ? "rgba(245, 158, 11, 0.95)"
@@ -115,8 +113,12 @@ function Toast({ error, onClose, onRetry }: ToastProps): React.ReactElement {
         gap: "12px",
         padding: "12px 16px",
         background: bgColor,
+        border: error.severity === "fatal" ? "1px solid rgba(248, 113, 113, 0.9)" : "none",
         borderRadius: "10px",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+        boxShadow:
+          error.severity === "fatal"
+            ? "0 6px 20px rgba(0,0,0,0.35)"
+            : "0 4px 12px rgba(0,0,0,0.15)",
         color: "#fff",
         animation: "toastSlideIn 0.2s ease-out",
       }}
@@ -138,7 +140,13 @@ function Toast({ error, onClose, onRetry }: ToastProps): React.ReactElement {
 
       {/* Icon */}
       <span style={{ fontSize: "18px" }}>
-        {error.severity === "error" ? "❌" : error.severity === "warning" ? "⚠️" : "ℹ️"}
+        {error.severity === "fatal"
+          ? "🛑"
+          : error.severity === "error"
+          ? "❌"
+          : error.severity === "warning"
+          ? "⚠️"
+          : "ℹ️"}
       </span>
 
       {/* Message */}
