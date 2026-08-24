@@ -25,3 +25,8 @@ harmony/.idea/
 harmony/.appanalyzer/
 harmony/local.properties
 harmony/entry/src/main/resources/rawfile/public/
+
+# local debug / sandbox artifacts (may contain creds)
+.chrome-debug/
+restart-log.txt
+verify-round2/

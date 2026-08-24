@@ -1,6 +1,8 @@
 # MindFS 二开计划 —— 需求与架构 Context 文档
 
 > 生成日期：2026-08-17　|　基线提交：`5600d4e`　|　上游：`github.com/a9gent/mindfs`
+>
+> **本轮（第一轮）已于 2026-08-22 全部收尾。** 第二轮（稳定性、数据安全与远程可观测）见：[round2-prd.md](./round2-prd.md) · [round2-design.md](./round2-design.md) · [round2-devplan.md](./round2-devplan.md)
 
 ## 0. 前提与边界
 
