@@ -1,15 +1,16 @@
-export type AppearanceMode = "dark" | "light" | "system" | "meadow" | "moss";
+export type AppearanceMode = "dark" | "light" | "system" | "meadow" | "moss" | "graphite";
 
 export const APPEARANCE_STORAGE_KEY = "mindfs-appearance-mode";
 export const APPEARANCE_CHANGE_EVENT = "mindfs:appearance-changed";
 
-const appearanceModes = new Set<AppearanceMode>(["dark", "light", "system", "meadow", "moss"]);
+const appearanceModes = new Set<AppearanceMode>(["dark", "light", "system", "meadow", "moss", "graphite"]);
 const themeColors: Record<AppearanceMode, string> = {
   dark: "#0f172a",
   light: "#f3f4f6",
   system: "#f3f4f6",
   meadow: "#f4efe6",
   moss: "#dfe5d4",
+  graphite: "#171717",
 };
 
 export function normalizeAppearanceMode(value: unknown): AppearanceMode {
@@ -27,8 +28,8 @@ export function getAppearanceMode(): AppearanceMode {
   }
 }
 
-export function getEffectiveAppearanceMode(mode: AppearanceMode = getAppearanceMode()): "dark" | "light" | "meadow" | "moss" {
-  if (mode === "dark" || mode === "light" || mode === "meadow" || mode === "moss") {
+export function getEffectiveAppearanceMode(mode: AppearanceMode = getAppearanceMode()): "dark" | "light" | "meadow" | "moss" | "graphite" {
+  if (mode === "dark" || mode === "light" || mode === "meadow" || mode === "moss" || mode === "graphite") {
     return mode;
   }
   if (typeof window === "undefined") {

@@ -27,6 +27,7 @@ export const zhCN = {
 
   "appearance.title": "外观",
   "appearance.dark": "深色模式",
+  "appearance.graphite": "石墨",
   "appearance.light": "浅色模式",
   "appearance.meadow": "翠谷金光",
   "appearance.moss": "苔痕绿影",

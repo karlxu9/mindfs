@@ -316,6 +316,74 @@ html {
   box-shadow: none !important;
 }
 
+/* ===== Graphite theme (石墨) — UI-T2 =====
+   Cold-neutral dark: zero hue outside accent/semantic colors, layering by
+   lightness instead of color, no gradients, thin non-glowing focus. */
+:root[data-theme="graphite"] {
+  color-scheme: dark;
+  --mindfs-system-bar-bg: #171717;
+  --mindfs-topbar-bg: #171717;
+  --mindfs-launcher-bg: #171717;
+  --mindfs-launcher-surface: rgba(33, 33, 33, 0.82);
+  --mindfs-launcher-surface-strong: rgba(33, 33, 33, 0.94);
+  --mindfs-launcher-surface-soft: rgba(33, 33, 33, 0.56);
+  --mindfs-launcher-border: rgba(255, 255, 255, 0.10);
+  --mindfs-launcher-border-strong: rgba(255, 255, 255, 0.16);
+  --mindfs-launcher-modal-border: rgba(255, 255, 255, 0.10);
+  --mindfs-launcher-input-bg: rgba(23, 23, 23, 0.72);
+  --mindfs-launcher-text: #ececec;
+  --mindfs-launcher-muted: #9b9b9b;
+  --mindfs-launcher-accent: #66a3e0;
+  --mindfs-launcher-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --mindfs-launcher-error-bg: rgba(127, 29, 29, 0.3);
+  --mindfs-launcher-error-text: #f2b8b5;
+  --bg-gradient-start: #212121;
+  --bg-gradient-end: #212121;
+  --text-primary: #ececec;
+  --text-secondary: #b4b4b4;
+  --border-color: rgba(255, 255, 255, 0.08);
+  --sidebar-bg: #171717;
+  --mobile-sidebar-bg: #171717;
+  --content-bg: #212121;
+  --mobile-overlay-bg: #212121;
+  --panel-bg: #2a2a2a;
+  --panel-border: rgba(255, 255, 255, 0.10);
+  --panel-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --panel-focus-shadow: 0 0 0 1px rgba(255, 255, 255, 0.28);
+  --mindfs-code-bg: #171717;
+  --mindfs-code-text: #e3e3e3;
+  --mindfs-code-border: rgba(255, 255, 255, 0.08);
+  --menu-bg: #2f2f2f;
+  --menu-border: rgba(255, 255, 255, 0.10);
+  --menu-divider: rgba(255, 255, 255, 0.06);
+  --menu-active-bg: rgba(255, 255, 255, 0.08);
+  --accent-color: #66a3e0;
+  --accent-hover: #85b6e6;
+  --selection-bg: rgba(255, 255, 255, 0.10);
+  --root-badge-bg: rgba(255, 255, 255, 0.10);
+  --root-badge-border: rgba(255, 255, 255, 0.16);
+  --root-badge-text: #d4d4d4;
+  --danger-color: #e5484d;
+  --warning-color: #d9a054;
+  --success-color: #6cb28e;
+  --on-accent-text: #ffffff;
+}
+
+:root[data-theme="graphite"] pre[class*="language-"],
+:root[data-theme="graphite"] code[class*="language-"] {
+  box-shadow: none !important;
+  background: var(--mindfs-code-bg) !important;
+  color: var(--mindfs-code-text) !important;
+  text-shadow: none !important;
+  border: 1px solid var(--mindfs-code-border) !important;
+}
+
+:root[data-theme="graphite"] pre[class*="language-"] > code[class*="language-"] {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
 /* ===== Meadow theme (翠谷金光) ===== */
 :root[data-theme="meadow"] {
   color-scheme: light;

@@ -67,6 +67,7 @@ const RELAYER_AD_DISMISS_STORAGE_KEY = "mindfs-relayer-ad-dismissed";
 
 const APPEARANCE_OPTIONS: Array<{ value: AppearanceMode; labelKey: MessageKey }> = [
   { value: "dark", labelKey: "appearance.dark" },
+  { value: "graphite", labelKey: "appearance.graphite" },
   { value: "light", labelKey: "appearance.light" },
   { value: "meadow", labelKey: "appearance.meadow" },
   { value: "moss", labelKey: "appearance.moss" },

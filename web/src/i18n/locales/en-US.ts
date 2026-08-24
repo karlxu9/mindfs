@@ -29,6 +29,7 @@ export const enUS = {
 
   "appearance.title": "Appearance",
   "appearance.dark": "Dark",
+  "appearance.graphite": "Graphite",
   "appearance.light": "Light",
   "appearance.meadow": "Meadow",
   "appearance.moss": "Moss",
