@@ -135,19 +135,19 @@ function wsStatusMeta(status: WSStatus, t: (key: MessageKey) => string): {
   switch (status) {
     case "connected":
       return {
-        color: "#22c55e",
+        color: "var(--success-color)",
         shadow: "none",
         label: t("action.ws.connected"),
       };
     case "connecting":
       return {
-        color: "#f59e0b",
+        color: "var(--warning-color)",
         shadow: "none",
         label: t("action.ws.connecting"),
       };
     case "reconnecting":
       return {
-        color: "#ef4444",
+        color: "var(--danger-color)",
         shadow: "none",
         label: t("action.ws.reconnecting"),
       };
@@ -264,7 +264,7 @@ function ShellSelector({
             maxWidth: "100%",
             padding: "1px 4px",
             borderRadius: "6px",
-            background: "#1d4ed8",
+            background: "var(--accent-hover)",
             color: "#fff",
             lineHeight: 1.2,
             boxSizing: "border-box",
@@ -360,7 +360,7 @@ function useResponsive() {
 function candidateNameColor(candidateType: CandidateItem["type"], isDark: boolean): string {
   switch (candidateType) {
     case "slash_command":
-      return isDark ? "#93c5fd" : "#1d4ed8";
+      return isDark ? "#93c5fd" : "var(--accent-hover)";
     case "prompt":
       return isDark ? "#fcd34d" : "#b45309";
     case "skill":
@@ -488,11 +488,11 @@ export function ActionBar({
   const isConnected = status === "connected";
   const connectionMeta = wsStatusMeta(status, t);
   const DRAG_THRESHOLD = -40;
-  const boundRingColor = detachedBoundSession ? "#f59e0b" : "#2563eb";
+  const boundRingColor = detachedBoundSession ? "var(--warning-color)" : "var(--accent-color)";
   const boundRingShadow = detachedBoundSession
     ? "0 0 0 1px rgba(245,158,11,0.18)"
     : "0 0 0 1px rgba(37,99,235,0.08)";
-  const boundArrowColor = detachedBoundSession ? "#f59e0b" : "#2563eb";
+  const boundArrowColor = detachedBoundSession ? "var(--warning-color)" : "var(--accent-color)";
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -1350,7 +1350,7 @@ export function ActionBar({
               }}
             >
               {planModeActive ? (
-                <div style={{ display: "inline-flex", alignItems: "center", gap: "5px", height: "20px", padding: "0 5px 0 8px", borderRadius: "999px", border: "1px solid rgba(37, 99, 235, 0.22)", background: "linear-gradient(rgba(37, 99, 235, 0.10), rgba(37, 99, 235, 0.10)), var(--mobile-overlay-bg)", color: "#2563eb", fontSize: "11px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "5px", height: "20px", padding: "0 5px 0 8px", borderRadius: "999px", border: "1px solid rgba(37, 99, 235, 0.22)", background: "linear-gradient(rgba(37, 99, 235, 0.10), rgba(37, 99, 235, 0.10)), var(--mobile-overlay-bg)", color: "var(--accent-color)", fontSize: "11px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>
                   <span>Plan</span>
                   <button type="button" aria-label={t("action.closePlanMode")} title={t("action.closePlanMode")} onMouseDown={(event) => event.preventDefault()} onClick={() => void onSetPlanMode?.(false, planSessionKey, planRootId)} style={{ width: "14px", height: "14px", border: "none", borderRadius: "999px", background: "transparent", color: "currentColor", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: "14px", lineHeight: 1, padding: 0 }}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h24v24H0z" fill="none" /><path fill="currentColor" fillRule="evenodd" d="M21 12a9 9 0 1 1-18 0a9 9 0 0 1 18 0M7.293 16.707a1 1 0 0 1 0-1.414L10.586 12L7.293 8.707a1 1 0 0 1 1.414-1.414L12 10.586l3.293-3.293a1 1 0 1 1 1.414 1.414L13.414 12l3.293 3.293a1 1 0 0 1-1.414 1.414L12 13.414l-3.293 3.293a1 1 0 0 1-1.414 0" clipRule="evenodd" /></svg>
@@ -1359,7 +1359,7 @@ export function ActionBar({
               ) : null}
               {!currentSession && currentRootIsGitRepo ? (
                 <>
-                  <button type="button" onClick={() => setCreateWorktree((value) => !value)} disabled={sending} aria-label={createWorktree ? t("task.worktreeTitle") : t("task.noWorktreeTitle")} title={createWorktree ? t("task.worktreeTitle") : t("task.noWorktreeTitle")} style={{ height: "24px", borderRadius: "6px", border: createWorktree ? "1px solid rgba(22, 163, 74, 0.28)" : "1px solid var(--border-color)", background: createWorktree ? "linear-gradient(rgba(22, 163, 74, 0.08), rgba(22, 163, 74, 0.08)), var(--mobile-overlay-bg)" : "linear-gradient(rgba(100, 116, 139, 0.10), rgba(100, 116, 139, 0.10)), var(--mobile-overlay-bg)", color: createWorktree ? "#15803d" : "var(--text-secondary)", padding: createWorktree ? "0 8px" : "0 8px 0 5px", fontSize: "11px", fontWeight: 800, cursor: sending ? "not-allowed" : "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "3px" }}>
+                  <button type="button" onClick={() => setCreateWorktree((value) => !value)} disabled={sending} aria-label={createWorktree ? t("task.worktreeTitle") : t("task.noWorktreeTitle")} title={createWorktree ? t("task.worktreeTitle") : t("task.noWorktreeTitle")} style={{ height: "24px", borderRadius: "6px", border: createWorktree ? "1px solid rgba(22, 163, 74, 0.28)" : "1px solid var(--border-color)", background: createWorktree ? "linear-gradient(rgba(22, 163, 74, 0.08), rgba(22, 163, 74, 0.08)), var(--mobile-overlay-bg)" : "linear-gradient(rgba(100, 116, 139, 0.10), rgba(100, 116, 139, 0.10)), var(--mobile-overlay-bg)", color: createWorktree ? "var(--success-color)" : "var(--text-secondary)", padding: createWorktree ? "0 8px" : "0 8px 0 5px", fontSize: "11px", fontWeight: 800, cursor: sending ? "not-allowed" : "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "3px" }}>
                     {createWorktree ? "worktree" : <><NoWorktreeIcon size={12} />worktree</>}
                   </button>
                   {createWorktree ? <><WorktreeBranchSelector branchMode={worktreeBranchMode} branch={worktreeBranch} branches={worktreeBranches.branches} disabled={sending} maxWidth={isMobile ? 150 : 240} menuAlign={isMobile ? "left" : "right"} menuPlacement="top" onChange={(nextMode, nextBranch) => { setWorktreeBranchMode(nextMode); setWorktreeBranch(nextBranch); }} />{worktreeBranchesLoading ? <span style={{ fontSize: "11px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{t("common.loading")}</span> : worktreeBranchError ? <span title={worktreeBranchError} style={{ fontSize: "11px", color: "#b45309", whiteSpace: "nowrap" }}>{t("common.loadingFailed")}</span> : null}</> : null}
@@ -1486,7 +1486,7 @@ export function ActionBar({
                         title={t("common.delete")}
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => void onRemoveQueuedMessage?.(item.id)}
-                        style={{ width: "28px", height: "28px", border: "none", borderRadius: "7px", background: "transparent", color: "#dc2626", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                        style={{ width: "28px", height: "28px", border: "none", borderRadius: "7px", background: "transparent", color: "var(--danger-color)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
                       >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <polyline points="3 6 5 6 21 6" />
@@ -1688,7 +1688,7 @@ export function ActionBar({
                             disabled={!!deletingPrompt}
                             aria-label={t("action.deletePrompt", { name: candidate.name })}
                             title={t("common.delete")}
-                            style={{ width: "28px", height: "28px", margin: "-5px -4px -5px 0", flexShrink: 0, border: "none", borderRadius: "7px", background: "transparent", color: "#dc2626", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: deletingPrompt ? "wait" : "pointer", opacity: deletingPrompt && deletingPrompt !== candidate.name ? 0.35 : 1 }}
+                            style={{ width: "28px", height: "28px", margin: "-5px -4px -5px 0", flexShrink: 0, border: "none", borderRadius: "7px", background: "transparent", color: "var(--danger-color)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: deletingPrompt ? "wait" : "pointer", opacity: deletingPrompt && deletingPrompt !== candidate.name ? 0.35 : 1 }}
                           >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                               <polyline points="3 6 5 6 21 6" />
@@ -1779,7 +1779,7 @@ export function ActionBar({
                           </button>
                         </div>
                         {promptSaveError ? (
-                          <div role="alert" style={{ padding: "0 2px", color: "#dc2626", fontSize: "11px", lineHeight: 1.4 }}>
+                          <div role="alert" style={{ padding: "0 2px", color: "var(--danger-color)", fontSize: "11px", lineHeight: 1.4 }}>
                             {promptSaveError}
                           </div>
                         ) : null}
@@ -1787,7 +1787,7 @@ export function ActionBar({
                     ) : (
                       <>
                         {promptSaveError ? (
-                          <div role="alert" style={{ padding: "7px 12px 0", color: "#dc2626", fontSize: "11px", lineHeight: 1.4 }}>
+                          <div role="alert" style={{ padding: "7px 12px 0", color: "var(--danger-color)", fontSize: "11px", lineHeight: 1.4 }}>
                             {promptSaveError}
                           </div>
                         ) : null}
@@ -2002,7 +2002,7 @@ export function ActionBar({
                 type="button"
                 onClick={showCancel ? handleCancel : handleSend}
                 disabled={showCancel ? cancelling : !canSend}
-                style={{ width: "28px", height: "28px", borderRadius: "8px", border: "none", background: showCancel ? "rgba(239,68,68,0.14)" : (canSend ? "var(--accent-color)" : "transparent"), color: showCancel ? "#ef4444" : (canSend ? "#fff" : "var(--text-secondary)"), display: "flex", alignItems: "center", justifyContent: "center", cursor: showCancel ? (cancelling ? "wait" : "pointer") : (canSend ? "pointer" : "not-allowed"), transition: "all 0.2s", opacity: showCancel ? 1 : (canSend ? 1 : 0.3) }}
+                style={{ width: "28px", height: "28px", borderRadius: "8px", border: "none", background: showCancel ? "rgba(239,68,68,0.14)" : (canSend ? "var(--accent-color)" : "transparent"), color: showCancel ? "var(--danger-color)" : (canSend ? "var(--on-accent-text)" : "var(--text-secondary)"), display: "flex", alignItems: "center", justifyContent: "center", cursor: showCancel ? (cancelling ? "wait" : "pointer") : (canSend ? "pointer" : "not-allowed"), transition: "all 0.2s", opacity: showCancel ? 1 : (canSend ? 1 : 0.3) }}
               >
                 {sending || cancelling ? (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite" }}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>

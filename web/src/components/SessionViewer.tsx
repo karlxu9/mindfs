@@ -302,7 +302,7 @@ function ContextWindowBadge({
   }
   const hue =
     metrics.percent >= 90
-      ? "#dc2626"
+      ? "var(--danger-color)"
       : metrics.percent >= 75
         ? "#ea580c"
         : "#0f766e";
@@ -600,7 +600,7 @@ function AskUserIcon() {
       height="16"
       viewBox="0 0 16 16"
       aria-hidden="true"
-      style={{ color: "#ef4444", flexShrink: 0 }}
+      style={{ color: "var(--danger-color)", flexShrink: 0 }}
     >
       <g fill="currentColor">
         <path d="M8 11a.75.75 0 1 1 0 1.5a.75.75 0 0 1 0-1.5m0-7c1.262 0 2.25.988 2.25 2.25c0 1.083-.566 1.648-1.021 2.104c-.408.407-.729.728-.729 1.396a.5.5 0 0 1-1 0c0-1.083.566-1.648 1.021-2.104c.408-.407.729-.728.729-1.396C9.25 5.538 8.712 5 8 5s-1.25.538-1.25 1.25a.5.5 0 0 1-1 0C5.75 4.988 6.738 4 8 4" />
@@ -943,7 +943,7 @@ function AskUserQuestionCard({
             border: "none",
             borderRadius: "999px",
             padding: "6px 12px",
-            background: canSubmit ? "#ef4444" : "var(--border-color)",
+            background: canSubmit ? "var(--danger-color)" : "var(--border-color)",
             color: canSubmit ? "#fff" : "var(--text-secondary)",
             fontSize: "12px",
             fontWeight: 700,
@@ -1583,7 +1583,7 @@ function SessionViewerInner({
     background: "transparent",
     padding: 0,
     margin: 0,
-    color: "#2563eb",
+    color: "var(--accent-color)",
     cursor: "pointer",
     fontSize: "14px",
     fontWeight: 800,
@@ -1893,7 +1893,7 @@ function SessionViewerInner({
                   title={t("session.promptSaved")}
                   style={{
                     ...userMetaButtonStyle,
-                    color: "#2563eb",
+                    color: "var(--accent-color)",
                     fontSize: "13px",
                   }}
                 >
@@ -2719,7 +2719,7 @@ function SessionViewerInner({
                                 >
                                   <span
                                     style={{
-                                      color: "#15803d",
+                                      color: "var(--success-color)",
                                       fontVariantNumeric: "tabular-nums",
                                     }}
                                   >
@@ -2727,7 +2727,7 @@ function SessionViewerInner({
                                   </span>
                                   <span
                                     style={{
-                                      color: "#b91c1c",
+                                      color: "var(--danger-color)",
                                       fontVariantNumeric: "tabular-nums",
                                     }}
                                   >
@@ -2751,7 +2751,7 @@ function SessionViewerInner({
                               style={{
                                 border: "none",
                                 background: "transparent",
-                                color: "#dc2626",
+                                color: "var(--danger-color)",
                                 cursor: "pointer",
                                 fontSize: "14px",
                                 lineHeight: 1,
@@ -2808,7 +2808,7 @@ function SessionViewerInner({
                   gap: "6px",
                   height: "34px",
                   border: "1px solid rgba(37,99,235,0.35)",
-                  background: "#2563eb",
+                  background: "var(--accent-color)",
                   color: "#ffffff",
                   borderRadius: "999px",
                   padding: "0 12px",
@@ -2962,7 +2962,7 @@ function SessionViewerInner({
                       height: "18px",
                       padding: "0 5px",
                       borderRadius: "999px",
-                      background: "#2563eb",
+                      background: "var(--accent-color)",
                       color: "#ffffff",
                       border: "2px solid var(--menu-bg)",
                       fontSize: "10px",

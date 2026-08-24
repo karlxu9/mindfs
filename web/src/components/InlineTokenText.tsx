@@ -65,9 +65,9 @@ export function InlineTokenText({
                   ? (isDark ? "rgba(59,130,246,0.16)" : "rgba(59,130,246,0.10)")
                   : (isDark ? "rgba(139,92,246,0.18)" : "rgba(139,92,246,0.10)"),
               color: variant === "inverse"
-                ? (isFile ? "#1d4ed8" : "#7c3aed")
+                ? (isFile ? "var(--accent-hover)" : "#7c3aed")
                 : isFile
-                  ? (isDark ? "#93c5fd" : "#1d4ed8")
+                  ? (isDark ? "#93c5fd" : "var(--accent-hover)")
                   : (isDark ? "#c4b5fd" : "#7c3aed"),
               border: variant === "inverse"
                 ? "none"

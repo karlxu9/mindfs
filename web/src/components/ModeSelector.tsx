@@ -134,7 +134,7 @@ export function ModeSelector({
                 background: m === mode ? "rgba(59, 130, 246, 0.08)" : "transparent",
                 cursor: "pointer",
                 fontSize: "13px",
-                color: m === mode ? "#3b82f6" : "var(--text-primary)",
+                color: m === mode ? "var(--accent-color)" : "var(--text-primary)",
                 fontWeight: m === mode ? 500 : 400,
                 textAlign: "left",
                 whiteSpace: "nowrap",

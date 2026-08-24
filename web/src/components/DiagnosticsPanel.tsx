@@ -158,7 +158,7 @@ export function DiagnosticsPanel({ onClose }: DiagnosticsPanelProps): React.Reac
 
         <div style={{ overflowY: "auto", padding: "4px 18px 18px", minHeight: 0 }}>
           {error ? (
-            <div style={{ color: "#ef4444", fontSize: "13px", padding: "12px 0" }}>{error}</div>
+            <div style={{ color: "var(--danger-color)", fontSize: "13px", padding: "12px 0" }}>{error}</div>
           ) : null}
 
           <div style={sectionTitleStyle}>{t("diagnostics.overview")}</div>
@@ -387,10 +387,10 @@ function StorageSection({ roots }: { roots: string[] }): React.ReactElement {
         />
         <span>
           {t("diagnostics.includeCredentials")}
-          {includeCredentials ? <strong style={{ color: "#f59e0b" }}> {t("diagnostics.credentialsWarning")}</strong> : null}
+          {includeCredentials ? <strong style={{ color: "var(--warning-color)" }}> {t("diagnostics.credentialsWarning")}</strong> : null}
         </span>
       </label>
-      {message ? <div style={{ color: "#ef4444", fontSize: "12px" }}>{message}</div> : null}
+      {message ? <div style={{ color: "var(--danger-color)", fontSize: "12px" }}>{message}</div> : null}
       {report ? (
         <div>
           <InfoRow label={t("diagnostics.reportSessions")} value={String(report.sessions_count)} />

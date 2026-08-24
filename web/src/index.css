@@ -51,6 +51,12 @@
   --root-badge-bg: rgba(99, 102, 241, 0.14);
   --root-badge-border: rgba(99, 102, 241, 0.24);
   --root-badge-text: #4f46e5;
+  /* Semantic colors (UI-T1): every theme inherits these legacy values unless
+     its own block overrides them, so pre-graphite themes look unchanged. */
+  --danger-color: #dc2626;
+  --warning-color: #f59e0b;
+  --success-color: #15803d;
+  --on-accent-text: #ffffff;
 }
 
 @keyframes mindfs-task-ask-user-pulse {

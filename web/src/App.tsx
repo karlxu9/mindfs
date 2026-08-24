@@ -12310,8 +12310,8 @@ export function App({ onGoHome }: AppProps) {
                 </span>
                 {stats ? (
                   <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "11px", color: "var(--text-secondary)", flexShrink: 0 }}>
-                    <span style={{ color: "#15803d", fontVariantNumeric: "tabular-nums" }}>+{stats.additions}</span>
-                    <span style={{ color: "#b91c1c", fontVariantNumeric: "tabular-nums" }}>-{stats.deletions}</span>
+                    <span style={{ color: "var(--success-color)", fontVariantNumeric: "tabular-nums" }}>+{stats.additions}</span>
+                    <span style={{ color: "var(--danger-color)", fontVariantNumeric: "tabular-nums" }}>-{stats.deletions}</span>
                   </span>
                 ) : null}
               </button>
@@ -12336,7 +12336,7 @@ export function App({ onGoHome }: AppProps) {
                   border: "none",
                   borderRadius: "5px",
                   background: "transparent",
-                  color: "#dc2626",
+                  color: "var(--danger-color)",
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -13037,7 +13037,7 @@ export function App({ onGoHome }: AppProps) {
 	                    <div style={{ padding: "10px 4px", fontSize: "12px", color: "var(--text-secondary)", textAlign: "center" }}>{t("task.empty")}</div>
 	                      ) : taskSections.map((section) => {
                       const sectionCollapsed = Boolean(section.name && collapsedTaskCompletionGroups.has(section.key));
-                      const sectionColor = section.tone === "danger" ? "#dc2626" : section.tone === "success" ? "#16a34a" : "var(--text-secondary)";
+                      const sectionColor = section.tone === "danger" ? "var(--danger-color)" : section.tone === "success" ? "var(--success-color)" : "var(--text-secondary)";
                       return (
 	                    <React.Fragment key={section.key}>
 	                      {section.name ? (
@@ -13318,7 +13318,7 @@ export function App({ onGoHome }: AppProps) {
                                       ...taskCardIconButtonStyle(),
                                       width: "17px",
                                       marginLeft: "-3px",
-                                      color: "#2563eb",
+                                      color: "var(--accent-color)",
                                     }}
                                   >
                                     <TaskRunNowIcon />
@@ -14824,7 +14824,7 @@ export function App({ onGoHome }: AppProps) {
               }}
             />
             {e2eePromptError ? (
-              <div style={{ color: "#dc2626", fontSize: "13px" }}>
+              <div style={{ color: "var(--danger-color)", fontSize: "13px" }}>
                 {e2eePromptError}
               </div>
             ) : null}
@@ -14934,7 +14934,7 @@ export function App({ onGoHome }: AppProps) {
                         borderRadius: "6px",
                         border: taskInlineEdit.createWorktree ? "1px solid rgba(22, 163, 74, 0.28)" : "1px solid var(--border-color)",
                         background: taskInlineEdit.createWorktree ? "rgba(22, 163, 74, 0.08)" : "rgba(100, 116, 139, 0.10)",
-                        color: taskInlineEdit.createWorktree ? "#15803d" : "var(--text-secondary)",
+                        color: taskInlineEdit.createWorktree ? "var(--success-color)" : "var(--text-secondary)",
                         padding: taskInlineEdit.createWorktree ? "0 8px" : "0 8px 0 5px",
                         fontSize: "12px",
                         fontWeight: 800,
@@ -15262,7 +15262,7 @@ export function App({ onGoHome }: AppProps) {
                   type="button"
                   onClick={() => void saveTaskInlineEdit()}
                   disabled={taskInlineSaving}
-                  style={{ height: "30px", borderRadius: "6px", border: "1px solid var(--accent-color)", background: "var(--accent-color)", color: "#fff", padding: "0 14px", fontWeight: 800, cursor: taskInlineSaving ? "not-allowed" : "pointer", opacity: taskInlineSaving ? 0.7 : 1 }}
+                  style={{ height: "30px", borderRadius: "6px", border: "1px solid var(--accent-color)", background: "var(--accent-color)", color: "var(--on-accent-text)", padding: "0 14px", fontWeight: 800, cursor: taskInlineSaving ? "not-allowed" : "pointer", opacity: taskInlineSaving ? 0.7 : 1 }}
                 >
                   {taskInlineSaving ? t("common.saving") : t("common.save")}
                 </button>
@@ -15542,7 +15542,7 @@ function taskCardIconButtonStyle(tone: "default" | "accent" | "success" | "dange
     border: "none",
     borderRadius: "6px",
     background: "transparent",
-    color: tone === "accent" ? "var(--accent-color)" : tone === "success" ? "#16a34a" : tone === "danger" ? "#dc2626" : tone === "warning" ? "#d97706" : "var(--text-secondary)",
+    color: tone === "accent" ? "var(--accent-color)" : tone === "success" ? "var(--success-color)" : tone === "danger" ? "var(--danger-color)" : tone === "warning" ? "#d97706" : "var(--text-secondary)",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -15575,7 +15575,7 @@ function taskWorktreeTagStyle(enabled: boolean): React.CSSProperties {
     border: enabled ? "1px solid rgba(22, 163, 74, 0.28)" : "1px solid rgba(217, 119, 6, 0.28)",
     borderRadius: "4px",
     background: enabled ? "rgba(22, 163, 74, 0.08)" : "rgba(217, 119, 6, 0.08)",
-    color: enabled ? "#15803d" : "#b45309",
+    color: enabled ? "var(--success-color)" : "#b45309",
     fontSize: "9px",
     fontWeight: 800,
     lineHeight: "12px",
@@ -15592,8 +15592,8 @@ function taskReplyPulseStyle(): React.CSSProperties {
     height: "8px",
     borderRadius: "999px",
     boxSizing: "border-box",
-    border: "1.5px solid #2563eb",
-    background: "#2563eb",
+    border: "1.5px solid var(--accent-color)",
+    background: "var(--accent-color)",
     animation: "mindfs-bound-pulse 2.2s ease-in-out infinite",
     boxShadow: "0 0 0 1.5px rgba(37,99,235,0.14)",
     pointerEvents: "none",
@@ -15603,8 +15603,8 @@ function taskReplyPulseStyle(): React.CSSProperties {
 function TaskPlanAuxIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M7 6h10M7 12h10M7 18h6" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" />
-      <path d="M4 6h.01M4 12h.01M4 18h.01" stroke="#2563eb" strokeWidth="3" strokeLinecap="round" />
+      <path d="M7 6h10M7 12h10M7 18h6" stroke="var(--accent-color)" strokeWidth="2" strokeLinecap="round" />
+      <path d="M4 6h.01M4 12h.01M4 18h.01" stroke="var(--accent-color)" strokeWidth="3" strokeLinecap="round" />
     </svg>
   );
 }

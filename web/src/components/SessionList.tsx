@@ -1120,7 +1120,7 @@ export function SessionList({
             style={{
               border: "1px solid rgba(220,38,38,0.4)",
               background: "transparent",
-              color: batchDeleting || selectedForDelete.size === 0 ? "var(--text-secondary)" : "#dc2626",
+              color: batchDeleting || selectedForDelete.size === 0 ? "var(--text-secondary)" : "var(--danger-color)",
               borderRadius: "8px",
               padding: "5px 10px",
               cursor: batchDeleting || selectedForDelete.size === 0 ? "default" : "pointer",
@@ -1832,7 +1832,7 @@ function SessionCard({
                   height: "auto",
                   padding: "1px 3px",
                   borderRadius: "5px",
-                  background: "#1d4ed8",
+                  background: "var(--accent-hover)",
                   border: "none",
                   color: "#fff",
                   display: "inline-flex",
@@ -2128,8 +2128,8 @@ function SessionCard({
                 borderRadius: "999px",
                 flexShrink: 0,
                 boxSizing: "border-box",
-                border: "1.5px solid #2563eb",
-                background: "#2563eb",
+                border: "1.5px solid var(--accent-color)",
+                background: "var(--accent-color)",
                 animation: "mindfs-bound-pulse 2.2s ease-in-out infinite",
                 boxShadow: "0 0 0 1.5px rgba(37,99,235,0.14)",
               }}
@@ -2348,7 +2348,7 @@ function SessionCard({
               }}
               style={{
                 ...menuItemStyle,
-                color: "#dc2626",
+                color: "var(--danger-color)",
               }}
             >
               <svg

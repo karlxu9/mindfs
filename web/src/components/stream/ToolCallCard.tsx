@@ -104,7 +104,7 @@ export function renderToolIcon(kind: string): React.ReactNode {
   }
   if (kind === "ask_user") {
     return (
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style={{ color: "#ef4444" }}>
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style={{ color: "var(--danger-color)" }}>
         <g fill="currentColor">
           <path d="M8 11a.75.75 0 1 1 0 1.5a.75.75 0 0 1 0-1.5m0-7c1.262 0 2.25.988 2.25 2.25c0 1.083-.566 1.648-1.021 2.104c-.408.407-.729.728-.729 1.396a.5.5 0 0 1-1 0c0-1.083.566-1.648 1.021-2.104c.408-.407.729-.728.729-1.396C9.25 5.538 8.712 5 8 5s-1.25.538-1.25 1.25a.5.5 0 0 1-1 0C5.75 4.988 6.738 4 8 4" />
           <path fillRule="evenodd" d="M8 1a7 7 0 0 1 6.999 7.001a7 7 0 0 1-10.504 6.06l-2.728.91a.582.582 0 0 1-.744-.714l.83-2.906A7 7 0 0 1 8 1m.001 1.001c-3.308 0-6 2.692-6 6c0 1.003.252 1.996.73 2.871l.196.36l-.726 2.54l1.978-.659l.428-.143l.39.226A6 6 0 0 0 8 14l.001.001c3.308 0 6-2.692 6-6s-2.692-6-6-6" clipRule="evenodd" />
@@ -338,12 +338,12 @@ function parseAnsiSegments(text: string): AnsiSegment[] {
 }
 
 const statusColors: Record<string, string> = {
-  running: "#f59e0b",
-  in_progress: "#f59e0b",
-  complete: "#22c55e",
-  success: "#22c55e",
-  failed: "#ef4444",
-  error: "#ef4444",
+  running: "var(--warning-color)",
+  in_progress: "var(--warning-color)",
+  complete: "var(--success-color)",
+  success: "var(--success-color)",
+  failed: "var(--danger-color)",
+  error: "var(--danger-color)",
 };
 
 const terminalFontFamily =
@@ -666,7 +666,7 @@ export const ToolCallCard = memo(function ToolCallCard({
                 padding: "1px 6px",
                 borderRadius: "999px",
                 background: "rgba(37, 99, 235, 0.10)",
-                color: "#1d4ed8",
+                color: "var(--accent-hover)",
                 fontSize: "10px",
                 fontWeight: 600,
                 letterSpacing: "0.02em",
@@ -694,7 +694,7 @@ export const ToolCallCard = memo(function ToolCallCard({
                 width: "6px",
                 height: "6px",
                 borderRadius: "50%",
-                background: "#f59e0b",
+                background: "var(--warning-color)",
                 animation: "pulse 1s infinite",
               }}
             />

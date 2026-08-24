@@ -802,7 +802,7 @@ function AgentConfigPopover({
         </>
       ) : step === "confirm" ? (
         <>
-          <div style={{ ...agentConfigHintStyle, color: "#dc2626" }}>
+          <div style={{ ...agentConfigHintStyle, color: "var(--danger-color)" }}>
             {confirmMessage || t("agentConfig.targetExists")}
           </div>
           <div style={agentConfigActionRowStyle}>
@@ -1041,7 +1041,7 @@ function AgentConfigPopover({
           </div>
         </>
       )}
-      {error ? <div style={{ ...agentConfigHintStyle, color: "#dc2626" }}>{error}</div> : null}
+      {error ? <div style={{ ...agentConfigHintStyle, color: "var(--danger-color)" }}>{error}</div> : null}
     </div>
   );
 }
@@ -1203,7 +1203,7 @@ function AgentLifecyclePopover({
           })
         )}
       </div>
-      {error ? <div style={{ ...agentConfigHintStyle, color: "#dc2626" }}>{error}</div> : null}
+      {error ? <div style={{ ...agentConfigHintStyle, color: "var(--danger-color)" }}>{error}</div> : null}
     </div>
   );
 }
@@ -1306,7 +1306,7 @@ const agentConfigIconButtonStyle = (disabled: boolean): React.CSSProperties => (
   border: "none",
   borderRadius: "8px",
   background: "transparent",
-  color: "#dc2626",
+  color: "var(--danger-color)",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
@@ -2653,8 +2653,8 @@ export function FileTree({
                     borderRadius: "999px",
                     flexShrink: 0,
                     boxSizing: "border-box",
-                    border: "1.5px solid #2563eb",
-                    background: isRootPending ? "#2563eb" : "transparent",
+                    border: "1.5px solid var(--accent-color)",
+                    background: isRootPending ? "var(--accent-color)" : "transparent",
                     animation: isRootPending ? "mindfs-bound-pulse 2.2s ease-in-out infinite" : "none",
                     boxShadow: isRootPending
                       ? "0 0 0 1.5px rgba(37,99,235,0.14)"
@@ -2663,7 +2663,7 @@ export function FileTree({
                 />
               ) : null}
               {hasSessionLink && (
-                <span style={{ fontSize: "10px", color: isFromActiveSession ? "#3b82f6" : "#9ca3af" }}>
+                <span style={{ fontSize: "10px", color: isFromActiveSession ? "var(--accent-color)" : "#9ca3af" }}>
                   {isFromActiveSession ? "◆" : "◇"}
                 </span>
               )}
@@ -3520,7 +3520,7 @@ export function FileTree({
               <span>{t("idleSessionResourceRelease.hours")}</span>
             </label>
             {idleReleaseError ? (
-              <div style={{ marginTop: "8px", color: "#dc2626", fontSize: "11px", lineHeight: 1.4 }}>
+              <div style={{ marginTop: "8px", color: "var(--danger-color)", fontSize: "11px", lineHeight: 1.4 }}>
                 {idleReleaseError}
               </div>
             ) : null}
@@ -3597,7 +3597,7 @@ export function FileTree({
               </span>
             </div>
             {sessionNamingError ? (
-              <div style={{ marginTop: "8px", color: "#dc2626", fontSize: "11px", lineHeight: 1.4 }}>
+              <div style={{ marginTop: "8px", color: "var(--danger-color)", fontSize: "11px", lineHeight: 1.4 }}>
                 {sessionNamingError}
               </div>
             ) : null}

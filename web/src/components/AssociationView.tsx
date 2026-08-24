@@ -111,7 +111,7 @@ export function AssociationView({
                     borderRadius: "6px",
                     border: "1px solid rgba(59,130,246,0.2)",
                     background: "rgba(59,130,246,0.05)",
-                    color: "#3b82f6",
+                    color: "var(--accent-color)",
                     fontSize: "11px",
                     cursor: "pointer",
                   }}

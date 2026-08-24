@@ -32,11 +32,11 @@ type GitStatusPanelProps = {
 function renderStatusColor(status: string): string {
   switch (status) {
     case "A":
-      return "#15803d";
+      return "var(--success-color)";
     case "D":
-      return "#b91c1c";
+      return "var(--danger-color)";
     case "R":
-      return "#1d4ed8";
+      return "var(--accent-hover)";
     case "??":
       return "#7c3aed";
     default:
@@ -45,7 +45,7 @@ function renderStatusColor(status: string): string {
 }
 
 function renderLineStat(value: number, prefix: "+" | "-"): React.ReactNode {
-  const color = prefix === "+" ? "#15803d" : "#b91c1c";
+  const color = prefix === "+" ? "var(--success-color)" : "var(--danger-color)";
   return (
     <span style={{ color, fontVariantNumeric: "tabular-nums" }}>
       {prefix}{value}

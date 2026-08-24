@@ -696,7 +696,7 @@ export function Login({ onOpenNode }: LoginProps): ReactElement {
                   </button>
                   <span
                     style={{
-                      color: "#dc2626",
+                      color: "var(--danger-color)",
                       fontSize: "12px",
                       fontWeight: 700,
                       lineHeight: 1.35,

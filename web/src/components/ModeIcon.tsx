@@ -23,7 +23,7 @@ export function ModeIcon({ type, size = "1em", style }: ModeIconProps) {
 
 function ChatIcon({ size, style }: Omit<ModeIconProps, "type">) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 12 12" style={{ color: "#3b82f6", ...style }} aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 12 12" style={{ color: "var(--accent-color)", ...style }} aria-hidden="true">
       <path d="M0 0h12v12H0z" fill="none" />
       <path
         fill="currentColor"

@@ -353,7 +353,7 @@ function ModePanel({
       <ModeItem
         label={t("projectAdd.blankProject")}
         onClick={onSelectBlankLocation}
-        iconColor="#2563eb"
+        iconColor="var(--accent-color)"
         icon={
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
             <path d="M12 5v14" />
@@ -364,7 +364,7 @@ function ModePanel({
       <ModeItem
         label={t("projectAdd.localDirectory")}
         onClick={onSelectLocal}
-        iconColor="#2563eb"
+        iconColor="var(--accent-color)"
         icon={
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M3 6h5l2 2h11" />

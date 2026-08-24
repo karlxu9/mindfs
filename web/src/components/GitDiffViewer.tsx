@@ -79,7 +79,7 @@ function Breadcrumbs({ root, path, onPathClick }: { root?: string | null; path: 
 }
 
 function renderLineStat(value: number, prefix: "+" | "-"): React.ReactNode {
-  const color = prefix === "+" ? "#15803d" : "#b91c1c";
+  const color = prefix === "+" ? "var(--success-color)" : "var(--danger-color)";
   return (
     <span style={{ color, fontVariantNumeric: "tabular-nums" }}>
       {prefix}{value}
@@ -114,7 +114,7 @@ function lineColor(kind: DiffLine["kind"]): string {
     case "del":
       return "#991b1b";
     case "hunk":
-      return "#1d4ed8";
+      return "var(--accent-hover)";
     default:
       return "var(--text-primary)";
   }

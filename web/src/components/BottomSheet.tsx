@@ -100,7 +100,7 @@ export function BottomSheet({
           }}
           onClick={onExpand}
         >
-          <div style={{ width: "64px", height: "3px", background: "#2563eb", borderRadius: "999px" }} />
+          <div style={{ width: "64px", height: "3px", background: "var(--accent-color)", borderRadius: "999px" }} />
         </div>
 
         {/* Content */}

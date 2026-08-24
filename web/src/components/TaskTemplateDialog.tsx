@@ -313,7 +313,7 @@ export function TaskTemplateDialog({ open, agents, template, onClose, onSaved }:
               borderRadius: "8px",
               border: "1px solid rgba(220, 38, 38, 0.24)",
               background: "rgba(220, 38, 38, 0.08)",
-              color: "#b91c1c",
+              color: "var(--danger-color)",
               fontSize: "12px",
               lineHeight: 1.45,
               fontWeight: 700,
@@ -357,7 +357,7 @@ export function TaskTemplateDialog({ open, agents, template, onClose, onSaved }:
                   title={index === 0 ? t("taskTemplate.firstStageCannotDelete") : t("taskTemplate.deleteStage")}
                   disabled={index === 0}
                   onClick={() => removeStage(index)}
-                  style={{ ...taskIconButtonStyle(index === 0), color: index === 0 ? "var(--text-secondary)" : "#dc2626" }}
+                  style={{ ...taskIconButtonStyle(index === 0), color: index === 0 ? "var(--text-secondary)" : "var(--danger-color)" }}
                 >
                   <DeleteIcon />
                 </button>
@@ -633,7 +633,7 @@ function StageTemplateSelect({ value, name, role, templates, onNameChange, onCha
                     event.stopPropagation();
                     onDelete(template.id || "");
                   }}
-                  style={{ ...taskIconButtonStyle(false), color: "#dc2626" }}
+                  style={{ ...taskIconButtonStyle(false), color: "var(--danger-color)" }}
                 >
                   <DeleteIcon />
                 </button>

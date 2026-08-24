@@ -676,7 +676,7 @@ export function AgentSelector({
                           fontSize: "13px",
                           color:
                             isExpanded || isSelected
-                              ? "#3b82f6"
+                              ? "var(--accent-color)"
                               : "var(--text-primary)",
                           fontWeight: isExpanded || isSelected ? 500 : 400,
                           whiteSpace: "nowrap",
@@ -750,7 +750,7 @@ export function AgentSelector({
                           border: "none",
                           background: "transparent",
                           color: isExpanded
-                            ? "#3b82f6"
+                            ? "var(--accent-color)"
                             : "var(--text-secondary)",
                           cursor: "pointer",
                           justifySelf: "center",
@@ -1174,7 +1174,7 @@ function SectionHeader({
           fontWeight: 700,
           letterSpacing: "0.08em",
           textTransform: "uppercase",
-          color: expanded ? "#3b82f6" : "var(--text-secondary)",
+          color: expanded ? "var(--accent-color)" : "var(--text-secondary)",
           whiteSpace: "nowrap",
         }}
       >
@@ -1225,7 +1225,7 @@ function SelectorChevron({ expanded }: { expanded: boolean }) {
       aria-hidden="true"
       style={{
         flexShrink: 0,
-        color: expanded ? "#3b82f6" : "#9ca3af",
+        color: expanded ? "var(--accent-color)" : "#9ca3af",
         transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
         transition: "transform 0.16s ease",
       }}
@@ -1257,7 +1257,7 @@ function sectionItemStyle(
     border: "none",
     borderTop: topBorder ? "1px solid var(--menu-divider)" : "none",
     background: selected ? "rgba(59, 130, 246, 0.08)" : "transparent",
-    color: selected ? "#3b82f6" : "var(--text-primary)",
+    color: selected ? "var(--accent-color)" : "var(--text-primary)",
     textAlign: "left",
     cursor: "pointer",
     opacity,

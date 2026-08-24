@@ -338,7 +338,7 @@ function CronEditor({
             <div
               style={{
                 fontSize: 12,
-                color: "#dc2626",
+                color: "var(--danger-color)",
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -366,7 +366,7 @@ function CronEditor({
           placeholder="@daily / @every 1h30m"
           style={{
             ...fieldStyle,
-            borderColor: invalid ? "#ef4444" : "var(--border-color)",
+            borderColor: invalid ? "var(--danger-color)" : "var(--border-color)",
           }}
         />
       ) : (
@@ -425,7 +425,7 @@ function CronEditor({
                 borderColor:
                   shouldValidate &&
                   !isCronSegmentValid(parts[index] || "", index)
-                    ? "#ef4444"
+                    ? "var(--danger-color)"
                     : "var(--border-color)",
                 padding: "7px 8px 7px 26px",
                 textAlign: "center",
@@ -712,7 +712,7 @@ export function ScheduledAgentTaskDialog({
                     }}
                     style={{
                       ...taskIconButtonStyle,
-                      color: task.enabled ? "#dc2626" : "var(--text-secondary)",
+                      color: task.enabled ? "var(--danger-color)" : "var(--text-secondary)",
                       opacity: task.enabled ? 1 : 0.5,
                       cursor: task.enabled ? "pointer" : "not-allowed",
                     }}
@@ -747,7 +747,7 @@ export function ScheduledAgentTaskDialog({
                     title={t("common.delete")}
                     aria-label={t("scheduled.deleteTask")}
                     onClick={() => void remove(task)}
-                    style={{ ...taskIconButtonStyle, color: "#dc2626" }}
+                    style={{ ...taskIconButtonStyle, color: "var(--danger-color)" }}
                   >
                     <DeleteIcon />
                   </button>
@@ -848,7 +848,7 @@ export function ScheduledAgentTaskDialog({
                             minWidth: 0,
                           }}
                         >
-                          <span style={{ color: record.ok ? "#10b981" : "#ef4444", flexShrink: 0 }}>
+                          <span style={{ color: record.ok ? "var(--success-color)" : "var(--danger-color)", flexShrink: 0 }}>
                             {record.ok ? "✓" : "✗"}
                           </span>
                           <span style={{ flexShrink: 0 }}>
@@ -1180,7 +1180,7 @@ export function ScheduledAgentTaskDialog({
                 border: "1px solid #fecaca",
                 borderRadius: 8,
                 background: "#fef2f2",
-                color: "#b91c1c",
+                color: "var(--danger-color)",
                 padding: "8px 10px",
                 fontSize: 12,
               }}

@@ -229,7 +229,7 @@ export function RelayLocalServicesDialog({ open, nodeId, relayBaseURL, noRelayer
                         onClick={() => updateEnabled(service, !service.enabled)}
                         style={{
                           ...serviceIconButtonStyle,
-                          color: service.enabled ? "#dc2626" : "var(--accent-color)",
+                          color: service.enabled ? "var(--danger-color)" : "var(--accent-color)",
                           opacity: busy ? 0.5 : 1,
                           cursor: busy ? "not-allowed" : "pointer",
                         }}
@@ -242,7 +242,7 @@ export function RelayLocalServicesDialog({ open, nodeId, relayBaseURL, noRelayer
                         title={t("common.delete")}
                         aria-label={t("relayLocal.deleteService")}
                         onClick={() => remove(service)}
-                        style={{ ...serviceIconButtonStyle, color: "#dc2626", opacity: busy ? 0.5 : 1, cursor: busy ? "not-allowed" : "pointer" }}
+                        style={{ ...serviceIconButtonStyle, color: "var(--danger-color)", opacity: busy ? 0.5 : 1, cursor: busy ? "not-allowed" : "pointer" }}
                         disabled={busy}
                       >
                         <DeleteIcon />
@@ -353,8 +353,8 @@ const urlLineStyle: React.CSSProperties = { display: "flex", alignItems: "center
 const urlTextStyle: React.CSSProperties = { ...monoLineStyle, marginTop: 0, minWidth: 0, flex: 1 };
 const actionRowStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" };
 const emptyStyle: React.CSSProperties = { borderRadius: "8px", padding: "8px 10px", fontSize: "12px", color: "var(--text-secondary)", background: "rgba(148, 163, 184, 0.10)", lineHeight: 1.45, wordBreak: "break-word" };
-const errorStyle: React.CSSProperties = { borderRadius: "8px", padding: "8px 10px", fontSize: "12px", color: "#dc2626", background: "rgba(148, 163, 184, 0.10)", lineHeight: 1.45, wordBreak: "break-word" };
-const primaryButtonStyle = (disabled: boolean): React.CSSProperties => ({ border: "none", borderRadius: "8px", padding: "8px 10px", background: "var(--accent-color)", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1 });
+const errorStyle: React.CSSProperties = { borderRadius: "8px", padding: "8px 10px", fontSize: "12px", color: "var(--danger-color)", background: "rgba(148, 163, 184, 0.10)", lineHeight: 1.45, wordBreak: "break-word" };
+const primaryButtonStyle = (disabled: boolean): React.CSSProperties => ({ border: "none", borderRadius: "8px", padding: "8px 10px", background: "var(--accent-color)", color: "var(--on-accent-text)", fontSize: "12px", fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1 });
 const ghostButtonStyle = (disabled: boolean): React.CSSProperties => ({ border: "1px solid var(--border-color)", borderRadius: "8px", padding: "8px 10px", background: "transparent", color: "var(--text-secondary)", fontSize: "12px", fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1 });
-const addButtonStyle = (disabled: boolean): React.CSSProperties => ({ border: "none", borderRadius: "7px", padding: "4px 9px", background: "var(--accent-color)", color: "#fff", fontSize: "11px", fontWeight: 600, lineHeight: 1.2, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.45 : 1, flexShrink: 0 });
+const addButtonStyle = (disabled: boolean): React.CSSProperties => ({ border: "none", borderRadius: "7px", padding: "4px 9px", background: "var(--accent-color)", color: "var(--on-accent-text)", fontSize: "11px", fontWeight: 600, lineHeight: 1.2, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.45 : 1, flexShrink: 0 });
 const serviceIconButtonStyle: React.CSSProperties = { border: "none", background: "transparent", color: "var(--text-primary)", borderRadius: 6, width: 26, height: 26, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 };

@@ -844,7 +844,7 @@ const TokenEditor = forwardRef<TokenEditorHandle, TokenEditorProps>(function Tok
         height: fillHeight ? "100%" : undefined,
         minHeight: "44px",
         ["--token-file-bg" as any]: isDark ? "rgba(59,130,246,0.16)" : "rgba(59,130,246,0.10)",
-        ["--token-file-text" as any]: isDark ? "#93c5fd" : "#1d4ed8",
+        ["--token-file-text" as any]: isDark ? "#93c5fd" : "var(--accent-hover)",
         ["--token-skill-bg" as any]: isDark ? "rgba(139,92,246,0.18)" : "rgba(139,92,246,0.10)",
         ["--token-skill-text" as any]: isDark ? "#c4b5fd" : "#7c3aed",
       }}
