@@ -363,7 +363,9 @@ html {
   --root-badge-bg: rgba(255, 255, 255, 0.10);
   --root-badge-border: rgba(255, 255, 255, 0.16);
   --root-badge-text: #d4d4d4;
-  --danger-color: #e5484d;
+  /* One lightness step above the spec's #e5484d: 4.11:1 on #212121 missed
+     the 4.5:1 AA body-text bar; #ec5d5e reaches 4.83:1 (UI-T3 tuning). */
+  --danger-color: #ec5d5e;
   --warning-color: #d9a054;
   --success-color: #6cb28e;
   --on-accent-text: #ffffff;
