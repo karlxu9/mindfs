@@ -1249,7 +1249,7 @@ export function ActionBar({
   const inputPlaceholder = mode === "chat" && !isFocused
     ? t(blurPlaceholderKey)
     : t(modePlaceholderKeys[mode]);
-  const editorRightInset = isMultiLine ? 14 : mode === "command" ? (isMobile ? 92 : 116) : isMobile ? 124 : 148;
+  const editorRightInset = isMultiLine ? 14 : (mode === "command" ? (isMobile ? 92 : 116) : isMobile ? 124 : 148) + (hasBoundSession ? 32 : 0);
   const editorBottomInset = isMultiLine ? 44 : 12;
   const editorMinHeight = 44;
   const mobileFileSidebarButton = isMobile ? (
@@ -1804,8 +1804,27 @@ export function ActionBar({
             />
 
             <div data-onboarding="input-controls" style={{ position: "absolute", right: isMobile ? "4px" : "8px", bottom: isMultiLine ? "6px" : "50%", transform: isMultiLine ? "none" : "translateY(50%)", display: "flex", alignItems: "center", gap: isMobile ? "0px" : "2px", zIndex: 5, transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)" }}>
+              <div data-onboarding="session-ring" style={{ display: "flex", alignItems: "center", gap: isMobile ? "0px" : "2px" }}>
+              {hasBoundSession ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetForNewSession();
+                    onNewSession?.();
+                  }}
+                  aria-label={t("action.newSession")}
+                  title={t("action.newSession")}
+                  style={{ width: "32px", height: "32px", minWidth: "32px", border: "none", borderRadius: "8px", padding: 0, background: "transparent", color: "var(--text-secondary)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s ease" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent-color)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-secondary)"; }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 5v14" />
+                    <path d="M5 12h14" />
+                  </svg>
+                </button>
+              ) : null}
               <div
-                data-onboarding="session-ring"
                 onClick={() => onSessionClick?.()}
                 style={{
                   width: "32px",
@@ -1866,6 +1885,7 @@ export function ActionBar({
                     />
                   </svg>
                 ) : null}
+              </div>
               </div>
 
               <>

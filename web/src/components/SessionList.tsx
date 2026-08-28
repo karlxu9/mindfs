@@ -39,6 +39,7 @@ type SessionListProps = {
   sessions: SessionItem[];
   selectedKey?: string;
   headerAction?: React.ReactNode;
+  onNewSession?: () => void;
   searchOpen?: boolean;
   searchResultsMode?: boolean;
   searchQuery?: string;
@@ -306,6 +307,7 @@ export function SessionList({
   sessions,
   selectedKey = "",
   headerAction,
+  onNewSession,
   searchOpen = false,
   searchResultsMode = false,
   searchQuery = "",
@@ -741,6 +743,36 @@ export function SessionList({
           </button>
         ) : (
           <div style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+            {onNewSession ? (
+              <button
+                type="button"
+                aria-label={t("action.newSession")}
+                title={t("action.newSession")}
+                onClick={onNewSession}
+                style={{
+                  width: "34px",
+                  height: "34px",
+                  minWidth: "34px",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: 0,
+                  background: "transparent",
+                  color: "var(--text-secondary)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent-color)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-secondary)"; }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 5v14" />
+                  <path d="M5 12h14" />
+                </svg>
+              </button>
+            ) : null}
             {onSearchToggle ? (
               <button
                 type="button"

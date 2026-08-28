@@ -14254,6 +14254,10 @@ export function App({ onGoHome }: AppProps) {
           handleSelectSession(s);
           if (isMobile) setIsRightOpen(false);
         }}
+        onNewSession={() => {
+          handleNewSession();
+          if (isMobile) setIsRightOpen(false);
+        }}
         onSync={handleSyncSession}
         onPin={handlePinSession}
         onRename={handleRenameSession}
