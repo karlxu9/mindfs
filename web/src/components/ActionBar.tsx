@@ -444,8 +444,6 @@ export function ActionBar({
   const [serializedInput, setSerializedInput] = useState("");
   const [inputHistoryIndex, setInputHistoryIndex] = useState<number | null>(null);
   const [activeToken, setActiveToken] = useState<{ type: "file" | "slash" | "prompt" | "command"; query: string } | null>(null);
-  const [dragX, setDragX] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
   const [sending, setSending] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const [cancelling, setCancelling] = useState(false);
@@ -472,7 +470,6 @@ export function ActionBar({
   const [worktreeBranches, setWorktreeBranches] = useState<GitBranchesPayload>({ branches: [] });
   const [worktreeBranchesLoading, setWorktreeBranchesLoading] = useState(false);
   const [worktreeBranchError, setWorktreeBranchError] = useState("");
-  const dragStartRef = useRef(0);
   const syncedSessionSignatureRef = useRef<string>("");
   const editorRef = useRef<TokenEditorHandle>(null);
   const candidateAbortRef = useRef<AbortController | null>(null);
@@ -487,7 +484,6 @@ export function ActionBar({
   const { isMobile } = useResponsive();
   const isConnected = status === "connected";
   const connectionMeta = wsStatusMeta(status, t);
-  const DRAG_THRESHOLD = -40;
   const boundRingColor = detachedBoundSession ? "var(--warning-color)" : "var(--accent-color)";
   const boundRingShadow = detachedBoundSession
     ? "0 0 0 1px rgba(245,158,11,0.18)"
@@ -1228,40 +1224,6 @@ export function ActionBar({
     syncedSessionSignatureRef.current = "";
   }, [agent, agents]);
 
-  const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
-    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
-    dragStartRef.current = clientX;
-    setIsDragging(true);
-  };
-
-  const handleDragEnd = useCallback(() => {
-    if (!isDragging) return;
-    if (dragX <= DRAG_THRESHOLD) {
-      resetForNewSession();
-      onNewSession?.();
-    }
-    setDragX(0);
-    setIsDragging(false);
-  }, [isDragging, dragX, onNewSession, resetForNewSession]);
-
-  useEffect(() => {
-    if (!isDragging) return;
-    const move = (e: MouseEvent | TouchEvent) => {
-      const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
-      setDragX(Math.min(0, clientX - dragStartRef.current));
-    };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", handleDragEnd);
-    window.addEventListener("touchmove", move);
-    window.addEventListener("touchend", handleDragEnd);
-    return () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", handleDragEnd);
-      window.removeEventListener("touchmove", move);
-      window.removeEventListener("touchend", handleDragEnd);
-    };
-  }, [isDragging, handleDragEnd]);
-
   const isSelectedAgentUnavailable = agents.length > 0 ? agents.find((a) => a.name === agent)?.available === false : false;
   const canSend = (!!serializedInput.trim() || pendingAttachments.length > 0) && isConnected && !sending && (mode === "command" || !!agent);
   const hasBoundSession = !!currentSession;
@@ -1284,11 +1246,9 @@ export function ActionBar({
     return () => window.removeEventListener("keydown", cancelOnEscape);
   }, [handleCancel, isCompositionActive, isMobile, showCancel]);
 
-  const inputPlaceholder = currentSession && !currentSession.pending
-    ? t("action.placeholder.newSessionSwipe")
-    : mode === "chat" && !isFocused
-      ? t(blurPlaceholderKey)
-      : t(modePlaceholderKeys[mode]);
+  const inputPlaceholder = mode === "chat" && !isFocused
+    ? t(blurPlaceholderKey)
+    : t(modePlaceholderKeys[mode]);
   const editorRightInset = isMultiLine ? 14 : mode === "command" ? (isMobile ? 92 : 116) : isMobile ? 124 : 148;
   const editorBottomInset = isMultiLine ? 44 : 12;
   const editorMinHeight = 44;
@@ -1558,7 +1518,7 @@ export function ActionBar({
                 display: "flex",
                 alignItems: "center",
                 position: "relative",
-                transition: isDragging ? "none" : "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
                 minHeight: `${editorMinHeight}px`,
                 minWidth: 0,
                 width: "100%",
@@ -1846,28 +1806,19 @@ export function ActionBar({
             <div data-onboarding="input-controls" style={{ position: "absolute", right: isMobile ? "4px" : "8px", bottom: isMultiLine ? "6px" : "50%", transform: isMultiLine ? "none" : "translateY(50%)", display: "flex", alignItems: "center", gap: isMobile ? "0px" : "2px", zIndex: 5, transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)" }}>
               <div
                 data-onboarding="session-ring"
-                onMouseDown={handleDragStart}
-                onTouchStart={handleDragStart}
-                onClick={() => {
-                  if (Math.abs(dragX) < 5) {
-                    onSessionClick?.();
-                  }
-                }}
+                onClick={() => onSessionClick?.()}
                 style={{
                   width: "32px",
                   height: "32px",
                   cursor: "pointer",
-                  transform: `translateX(${dragX}px)`,
-                  transition: isDragging ? "none" : "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                  transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                   position: "relative",
                   zIndex: 10,
                   opacity: 1,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  touchAction: "none",
                 }}
-                title={t("action.swipeNewSession")}
               >
                 {!hasBoundSession ? (
                   <div
@@ -1914,11 +1865,6 @@ export function ActionBar({
                       strokeLinejoin="round"
                     />
                   </svg>
-                ) : null}
-                {isDragging && dragX < -10 ? (
-                  <div style={{ position: "absolute", right: "100%", top: "50%", transform: "translateY(-50%)", marginRight: "8px", fontSize: "10px", fontWeight: 600, color: dragX <= DRAG_THRESHOLD ? "var(--accent-color)" : "#9ca3af", whiteSpace: "nowrap", opacity: Math.min(1, Math.abs(dragX) / 20), pointerEvents: "none" }}>
-                    {dragX <= DRAG_THRESHOLD ? t("action.releaseNewSession") : t("action.swipeNewSession")}
-                  </div>
                 ) : null}
               </div>
 
