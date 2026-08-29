@@ -675,6 +675,7 @@ export const zhCN = {
   "action.deletePrompt": "删除快捷输入 {name}",
   "action.deletePromptFailed": "删除快捷输入失败",
   "action.newSession": "新建会话",
+  "action.sessionRing": "当前会话",
   "action.addAttachment": "添加附件",
   "action.removeFileContext": "移除文件上下文 {name}",
   "action.removeItem": "移除 {name}",

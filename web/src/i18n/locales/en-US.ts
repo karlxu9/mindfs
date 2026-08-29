@@ -677,6 +677,7 @@ export const enUS = {
   "action.deletePrompt": "Delete quick input {name}",
   "action.deletePromptFailed": "Failed to delete quick input",
   "action.newSession": "New session",
+  "action.sessionRing": "Current session",
   "action.addAttachment": "Add attachment",
   "action.removeFileContext": "Remove file context {name}",
   "action.removeItem": "Remove {name}",

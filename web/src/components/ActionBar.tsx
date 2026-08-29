@@ -1825,7 +1825,17 @@ export function ActionBar({
                 </button>
               ) : null}
               <div
+                role="button"
+                tabIndex={0}
+                aria-label={t("action.sessionRing")}
+                aria-expanded={canOpenSessionDrawer ? sessionDrawerOpen : undefined}
                 onClick={() => onSessionClick?.()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSessionClick?.();
+                  }
+                }}
                 style={{
                   width: "32px",
                   height: "32px",
