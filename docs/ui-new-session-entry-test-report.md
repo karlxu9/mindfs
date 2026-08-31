@@ -1,4 +1,4 @@
-﻿# 「新建会话入口重做」测试报告
+# 「新建会话入口重做」测试报告
 
 > 被测提交：`038d6d6`（删除会话环左滑手势，T1+T4-del）、`a8e55cc`（环旁＋会话列表头部「＋」按钮，T2+T3+T4-add）
 > 设计文档：`docs/ui-new-session-entry.md`；实施计划：`docs/ui-new-session-entry-devplan.md`
@@ -48,6 +48,7 @@
 5. **模型/effort 重置规则**：新会话态回默认值，agent 保留（设计如此）。
 6. **安装横幅间歇遮挡移动端 footer 按钮**；桌面标签存在历史遗留绑定态。自动化点击前需做遮挡检测。
 7. 主题切换经 `data-theme` + CSS 变量生效，按钮颜色带 0.15s 过渡；自动化读色需跨任务或等待过渡结束。
+8. **a11y 缺陷建议（低优先级，转研发）**：会话环原为 div onClick，无 aria-label、不在键盘 tab 序，读屏与键盘用户无法操作；同容器内＋按钮的无障碍属性完整，可参照。建议研发补 role="button" + tabIndex={0} + aria-label + 回车/空格键处理。**已实施**（`a8c0c00`，2026-08-29）：环补 `role="button"`、`tabIndex={0}`、`aria-label`（新 key `action.sessionRing`，zh「当前会话」/ en "Current session"）、Enter/空格激活（preventDefault 防滚动），并在抽屉指示可见时暴露 `aria-expanded`。**活体验证通过**（2026-08-29，headless Chrome + CDP 真键事件）：① 桌面/移动双标签 role/tabindex/aria-label 均正确；② Tab 序可达（桌面 25 次、移动 22 次 Tab 后焦点落在环，紧随＋按钮之后）；③ affordance 态（bound≠main）下 `aria-expanded` 出现且与抽屉开合同步；④ 聚焦环后真实 Enter、Space 键均可开/关抽屉（expanded true↔false 翻转），鼠标点击三分支回归不变、环内箭头方向正确翻转；⑤ 未绑定与 bound==main 态不渲染 `aria-expanded`，键盘激活走同一 onSessionClick 无副作用。typecheck + web build 绿。截图归档 `verify-ns/ns-07-a11y-drawer-open.jpeg`、`ns-07-a11y-drawer-closed.jpeg`。
 
 ## 五、真机遗留清单（合并后抽查）
 
